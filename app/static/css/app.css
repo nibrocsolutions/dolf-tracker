@@ -17,23 +17,44 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  min-height: 100dvh;
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
   background:
     radial-gradient(1200px 400px at 50% -10%, #ffffff 0%, transparent 55%),
     var(--fairway);
   color: var(--ink);
   font: 17px/1.4 "Segoe UI", system-ui, sans-serif;
-  touch-action: manipulation;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
-button { cursor: pointer; }
+button, .rowcard, .chip {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(31, 107, 69, 0.25);
+}
+button:active, .rowcard:active { filter: brightness(0.96); }
+body.busy::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--orange);
+  z-index: 6;
+}
 img { max-width: 100%; }
 body.busy { cursor: progress; }
 
 #app {
+  flex: 1 1 auto;
+  width: 100%;
   max-width: 520px;
   margin: 0 auto;
-  padding: calc(12px + env(safe-area-inset-top)) 16px calc(var(--nav-h) + 16px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 24px;
 }
 
 .top {
@@ -209,13 +230,9 @@ textarea { min-height: 90px; resize: vertical; }
 .details button.on { background: var(--pine); color: white; border-color: var(--pine); }
 
 .pager {
-  position: sticky;
-  bottom: calc(72px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding-top: 8px;
-  background: linear-gradient(transparent, var(--fairway) 28%);
 }
 .cardgrid { overflow-x: auto; }
 .cardgrid table { border-collapse: collapse; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
@@ -267,19 +284,19 @@ textarea { min-height: 90px; resize: vertical; }
 }
 
 #nav {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  background: rgba(255, 253, 248, 0.96);
+  flex: none;
+  background: #fffdf8;
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
   z-index: 2;
 }
+#nav[hidden] { display: none; }
 .nav-inner { max-width: 520px; margin: 0 auto; display: flex; }
 #nav button {
   flex: 1;
   min-height: 56px;
   border: 0;
-  background: transparent;
+  background: #fffdf8;
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;

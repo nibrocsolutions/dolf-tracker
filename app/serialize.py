@@ -89,7 +89,7 @@ def review_out(review: Review) -> dict:
 
 
 def course_out(course: Course) -> dict:
-    layouts = sorted(course.layouts, key=lambda layout: (layout.name.lower(), layout.id))
+    layouts = sorted(course.layouts, key=lambda layout: layout.id)
     reviews = sorted(
         course.reviews,
         key=lambda review: review.created_at or datetime.min.replace(tzinfo=timezone.utc),

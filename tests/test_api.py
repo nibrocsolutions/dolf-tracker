@@ -22,28 +22,96 @@ def test_health_and_home_page(client):
     assert 'name="apple-mobile-web-app-capable"' in page.text
 
 
+def _par_distance(layout):
+    return (
+        sum(hole["par"] for hole in layout["holes"]),
+        sum(hole["distance_ft"] for hole in layout["holes"]),
+    )
+
+
 def test_seeded_local_courses(client):
     joe = _course_by_name(client, "Joe Eakes Park")
-    layout = joe["layouts"][0]
-    assert layout["pars_confirmed"] is True
-    assert sum(hole["par"] for hole in layout["holes"]) == 61
-    assert sum(hole["distance_ft"] for hole in layout["holes"]) == 5229
+    by_name = {layout["name"]: layout for layout in joe["layouts"]}
+    assert joe["layouts"][0]["name"] == "Original"
+    assert _par_distance(by_name["Original"]) == (60, 5280)
+    assert by_name["Original"]["holes"][0]["distance_ft"] == 310
+    assert _par_distance(by_name["Alternate"]) == (62, 5941)
+    assert joe["dog_friendly"] == "yes"
+    assert joe["pay_to_play"] == "no"
 
     uncw = _course_by_name(client, "UNCW Disc Golf Course")
-    uncw_layout = uncw["layouts"][0]
-    assert sum(hole["par"] for hole in uncw_layout["holes"]) == 54
-    assert sum(hole["distance_ft"] for hole in uncw_layout["holes"]) == 4070
+    uncw_layouts = {layout["name"]: layout for layout in uncw["layouts"]}
+    assert _par_distance(uncw_layouts["Short then long"]) == (56, 4195)
+    assert _par_distance(uncw_layouts["Short tees"]) == (28, 1734)
+    assert _par_distance(uncw_layouts["Long tees"]) == (28, 2461)
+    assert "Hamilton" in uncw["address"]
 
     trinity = _course_by_name(client, "Trinity at Good Hops")
-    trinity_layout = trinity["layouts"][0]
-    assert sum(hole["par"] for hole in trinity_layout["holes"]) == 54
-    assert sum(hole["distance_ft"] for hole in trinity_layout["holes"]) == 2959
+    assert len(trinity["layouts"][0]["holes"]) == 9
+    assert _par_distance(trinity["layouts"][0]) == (27, 1493)
 
     castle = _course_by_name(client, "Castle Hayne Park")
-    assert castle["layouts"][0]["pars_confirmed"] is False
-    assert len(castle["layouts"][0]["holes"]) == 18
+    castle_layouts = {layout["name"]: layout for layout in castle["layouts"]}
+    assert castle["layouts"][0]["name"] == "Long baskets"
+    assert castle_layouts["Long baskets"]["pars_confirmed"] is True
+    assert _par_distance(castle_layouts["Long baskets"]) == (64, 6913)
+    assert _par_distance(castle_layouts["Short baskets"]) == (63, 6866)
     assert castle["accessible"] == "yes"
     assert castle["pay_to_play"] == "no"
+
+    arrowhead = _course_by_name(client, "Arrowhead Park")
+    assert arrowhead["layouts"][0]["pars_confirmed"] is True
+    assert _par_distance(arrowhead["layouts"][0]) == (54, 3577)
+    assert "Mando" in arrowhead["layouts"][0]["holes"][10]["notes"]
+    assert arrowhead["latitude"] == 34.1366
+
+
+def test_sync_repairs_old_holes_and_keeps_scored_ones(client):
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import Course, Hole, HoleScore, Player, Round, RoundPlayer
+    from app.seed import OLD_SIGNATURES, sync_published_courses
+
+    db = SessionLocal()
+    joe = db.scalar(select(Course).where(Course.external_id == "seed/joe-eakes"))
+    original = next(layout for layout in joe.layouts if layout.name == "Original")
+    original.name = "Main"
+    for hole in list(original.holes):
+        db.delete(hole)
+    db.flush()
+    old_rows = next(iter(OLD_SIGNATURES["seed/joe-eakes"]))
+    for number, (par, distance) in enumerate(old_rows, start=1):
+        original.holes.append(Hole(number=number, par=par, distance_ft=distance, notes=""))
+    db.commit()
+    sync_published_courses(db)
+    db.commit()
+    db.refresh(original)
+    assert original.name == "Original"
+    assert sum(hole.par for hole in original.holes) == 60
+    assert sum(hole.distance_ft for hole in original.holes) == 5280
+
+    trinity = db.scalar(select(Course).where(Course.external_id == "seed/trinity-good-hops"))
+    layout = trinity.layouts[0]
+    layout.pars_confirmed = False
+    for number in range(10, 19):
+        layout.holes.append(Hole(number=number, par=3, distance_ft=100, notes=""))
+    player = Player(name="Pat")
+    db.add(player)
+    db.flush()
+    played = Round(course_id=trinity.id, layout_id=layout.id, status="live")
+    played.players.append(RoundPlayer(player_id=player.id, tee_order=1))
+    played.scores.append(HoleScore(player_id=player.id, hole_number=10, strokes=3))
+    db.add(played)
+    db.commit()
+    layout_id = layout.id
+    sync_published_courses(db)
+    db.commit()
+    db.expire_all()
+    kept = db.get(Course, trinity.id).layouts
+    kept_layout = next(item for item in kept if item.id == layout_id)
+    assert len(kept_layout.holes) == 18
+    db.close()
 
 
 def test_round_scores_stats_and_tee_order(client):
