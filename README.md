@@ -37,10 +37,16 @@ docker compose down
 - See who throws next from the previous hole
 - Optionally record putts and whether the drive was in the fairway, left, right, or parked
 - Finish a round, reopen it, or delete it
+- Swipe a round left and confirm before it is removed
 - Read stats: average versus par, best round, aces, birdies, and a split by course
 - Save courses you play, edit hole par and distance, and leave a condition note
 - Search OpenStreetMap for courses by city or name, then set the pars yourself
 - Keep the discs in your bag, with speed, glide, turn, and fade
+- Rename or remove a player, edit a course, and delete a layout, a note, or a disc
+
+Scores, rounds, discs, and courses are stored in SQLite on the Pi, one database for everyone who uses that Pi. Each player's rounds and bag stay attached to that name. The phone only remembers which name you picked. `docker compose down` keeps the data. `docker compose down -v` erases it.
+
+Open `http://<pi-ip>:8092/admin` to export a full backup or replace the database from a backup file. Removing a player there also removes their scores. A round stays if someone else is still on the card. There is no password on that page.
 
 The first launch includes five public courses around New Hanover County so there is something to play:
 
@@ -84,6 +90,11 @@ pytest
 | POST | `/api/courses/{id}/layouts` | Add a layout |
 | PUT, DELETE | `/api/layouts/{id}` | Edit or remove a layout |
 | POST | `/api/courses/{id}/reviews` | Rating and conditions |
+| DELETE | `/api/reviews/{id}` | Remove a condition note |
+| GET | `/api/admin/summary` | Counts for the admin page |
+| GET | `/api/admin/export` | Full backup as JSON |
+| POST | `/api/admin/import` | Replace the database from that backup |
+| DELETE | `/api/admin/players/{id}` | Remove a player and their scores |
 | GET, POST | `/api/rounds` | Live and finished rounds |
 | GET, PATCH, DELETE | `/api/rounds/{id}` | One scorecard |
 | POST | `/api/rounds/{id}/finish` | Finish |
@@ -105,7 +116,7 @@ pytest
 
 ## Notes
 
-- Anyone who can open the address can read and change the scorecards. Keep it on your home network. Do not forward port 8092 to the internet.
+- Anyone who can open the address can read and change the scorecards, and anyone who can open `/admin` can export or replace the whole database. Keep it on your home network. Do not forward port 8092 to the internet.
 - The phone has to reach the Pi. On the same Wi-Fi, use the Pi's address. Away from home, use a VPN you already trust. The page itself does not need a store account.
 - Map search calls OpenStreetMap's public Nominatim and Overpass services. The scorecard, stats, and bag work with no internet.
 - Phone GPS is not used. Browsers only share a location over HTTPS, and this app is plain HTTP on the LAN. Search by city instead.

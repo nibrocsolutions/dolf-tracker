@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin import router as admin_router
 from app.api.routes import router
 from app.config import settings
 from app.database import Base, SessionLocal, engine
@@ -44,9 +45,16 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(router)
+app.include_router(admin_router)
 app.mount("/static", FreshStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
 def index() -> HTMLResponse:
+    return HTMLResponse(index_html(), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/admin")
+@app.get("/admin/")
+def admin_page() -> HTMLResponse:
     return HTMLResponse(index_html(), headers={"Cache-Control": "no-cache"})
