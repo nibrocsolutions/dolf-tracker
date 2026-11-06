@@ -46,13 +46,13 @@ The first launch includes five public courses around New Hanover County so there
 
 | Course | What is filled in |
 | --- | --- |
-| Joe Eakes Park, Kure Beach | 18 holes, par 61, published distances |
-| UNCW Disc Golf Course | 18 holes, par 54, published distances |
-| Trinity at Good Hops, Carolina Beach | 18 holes, par 54, published distances |
-| Castle Hayne Park | 18 holes. Pars are placeholders until you set them |
-| Arrowhead Park, Wilmington | 18 holes. Pars are placeholders until you set them |
+| Joe Eakes Park, Kure Beach | Original yellow baskets, par 60, 5,280 ft. Alternate red baskets, par 62, 5,941 ft |
+| UNCW Disc Golf Course | 9 baskets. Short tees par 28 / 1,734 ft, long tees par 28 / 2,461 ft, plus an 18-hole round that plays short then long |
+| Trinity at Good Hops, Carolina Beach | 9 holes, par 27, 1,493 ft |
+| Castle Hayne Park | Long baskets par 64 / 6,913 ft. Short baskets par 63 / 6,866 ft |
+| Arrowhead Park, Wilmington | 18 par 3s, 3,577 ft |
 
-Joe Eakes, UNCW, and Trinity use publicly posted hole lists. If a pin has moved, edit the layout. Castle Hayne and Arrowhead are real courses, and their hole-by-hole pars are left for you to enter from the tee signs.
+Pars and distances come from public DGCR hole lists (Joe Eakes updated June 24, 2021, Castle Hayne dated February 2, 2018, UNCW and Trinity from their course pages). Arrowhead uses the current 18-hole par-3 layout. A Pi that already has the first seed replaces those placeholder or outdated holes on the next start, and leaves a layout alone once you have edited it. If a pin has moved, edit the layout.
 
 ## Local development
 

@@ -119,11 +119,21 @@ function setPlayer(id) {
 
 async function api(path, options = {}) {
   const opts = { method: options.method || "GET", headers: {} };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  opts.signal = controller.signal;
   if (options.body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(options.body);
   }
-  const response = await fetch(path, opts);
+  let response;
+  try {
+    response = await fetch(path, opts);
+  } catch (err) {
+    throw new Error("The Pi didn't answer. Try that again.");
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) {
     let detail = "Something went wrong.";
     try {
@@ -259,13 +269,18 @@ async function run(work) {
   state.busy = true;
   state.error = "";
   state.notice = "";
-  // Let the click or submit event finish before replacing the page.
-  await new Promise((resolve) => setTimeout(resolve, 0));
   render();
   try {
     await work();
   } catch (err) {
-    state.error = err.message || "Something went wrong.";
+    state.error = err.message || "The Pi didn't answer. Try that again.";
+    if (state.screen === "round" && state.round) {
+      try {
+        state.round = await api(`/api/rounds/${state.round.id}`);
+      } catch (reloadErr) {
+        /* keep the page that is already on screen */
+      }
+    }
   } finally {
     state.busy = false;
     render();
@@ -1000,10 +1015,38 @@ function optionalNumber(data, name) {
   return Number.isFinite(value) ? value : null;
 }
 
+function rememberScore(playerId, strokes) {
+  const round = state.round;
+  if (!round) return;
+  const hole = holeByNumber(round, state.hole);
+  const par = hole ? hole.par : 3;
+  const previous = scoreFor(round, playerId, state.hole);
+  const keep = round.scores.filter((score) => !(score.player_id === playerId && score.hole_number === state.hole));
+  if (strokes != null) {
+    keep.push({
+      player_id: playerId,
+      hole_number: state.hole,
+      strokes,
+      putts: previous ? previous.putts : null,
+      fairway: previous ? previous.fairway : null,
+      vs_par: strokes - par,
+      result_label: strokes === 1 ? "Ace" : fmtVs(strokes - par),
+    });
+  }
+  round.scores = keep;
+  const line = round.summary.find((item) => item.player_id === playerId);
+  if (line) {
+    const mine = keep.filter((score) => score.player_id === playerId);
+    line.strokes = mine.reduce((sum, score) => sum + score.strokes, 0);
+    line.par = mine.reduce((sum, score) => sum + (holeByNumber(round, score.hole_number) || { par: 3 }).par, 0);
+    line.vs_par = line.strokes - line.par;
+    line.holes_scored = mine.length;
+  }
+}
+
 async function saveScore(playerId, strokes, extras = {}) {
   const round = state.round;
   const current = scoreFor(round, playerId, state.hole);
-  const hadScore = Boolean(current);
   state.round = await api(`/api/rounds/${round.id}/scores`, {
     method: "PUT",
     body: {
@@ -1016,7 +1059,7 @@ async function saveScore(playerId, strokes, extras = {}) {
   });
   const holeCount = state.round.layout.holes.length;
   const everyone = state.round.players.every((player) => scoreFor(state.round, player.id, state.hole));
-  if (!hadScore && strokes != null && everyone && state.hole < holeCount) {
+  if (extras.advance && strokes != null && everyone && state.hole < holeCount) {
     state.hole += 1;
     sessionStorage.setItem("dolfHole", String(state.hole));
   }
@@ -1174,7 +1217,7 @@ async function onSubmit(act, data) {
 
 async function doAct(act, data) {
   if (act === "score") {
-    await saveScore(Number(data.player), Number(data.strokes));
+    await saveScore(Number(data.player), Number(data.strokes), { advance: data.fresh === "1" });
     return;
   }
   if (act === "clear-score") {
@@ -1314,27 +1357,86 @@ function onAct(el) {
     else run(() => navigate(state.tab || "home", true));
     return;
   }
+  if (act === "score" && state.round && state.round.status === "live") {
+    data.fresh = scoreFor(state.round, Number(data.player), state.hole) ? "" : "1";
+    rememberScore(Number(data.player), Number(data.strokes));
+  }
+  if (act === "clear-score" && state.round) rememberScore(Number(data.player), null);
   run(() => doAct(act, data));
 }
 
-document.addEventListener("click", (event) => {
-  if (event.target.classList && event.target.classList.contains("sheet-back")) {
+function eventElement(event) {
+  const node = event.target;
+  if (node instanceof Element) return node;
+  return node && node.parentElement ? node.parentElement : null;
+}
+
+function findControl(event) {
+  const target = eventElement(event);
+  if (!target) return null;
+  if (target.closest("input, textarea, select, a")) return null;
+  if (target.classList && target.classList.contains("sheet-back")) return { kind: "sheet" };
+  const go = target.closest("[data-go]");
+  if (go) return { kind: "go", el: go };
+  const tab = target.closest("#nav [data-tab]");
+  if (tab) return { kind: "tab", el: tab };
+  const act = target.closest("button[data-act]");
+  if (act) return { kind: "act", el: act };
+  return null;
+}
+
+function activate(control) {
+  if (!control) return;
+  if (control.kind === "sheet") {
     state.sheet = null;
     paint();
     return;
   }
-  const go = event.target.closest("[data-go]");
-  if (go) {
-    run(() => navigate(go.dataset.go));
+  if (control.kind === "go") {
+    run(() => navigate(control.el.dataset.go));
     return;
   }
-  const tab = event.target.closest("[data-tab]");
-  if (tab && event.target.closest("#nav")) {
-    run(() => navigate(tab.dataset.tab));
+  if (control.kind === "tab") {
+    run(() => navigate(control.el.dataset.tab));
     return;
   }
-  const act = event.target.closest("button[data-act]");
-  if (act) onAct(act);
+  onAct(control.el);
+}
+
+let touchStart = null;
+let touchMoved = false;
+let swallowEl = null;
+let swallowUntil = 0;
+
+document.addEventListener("touchstart", (event) => {
+  const point = event.changedTouches && event.changedTouches[0];
+  touchStart = point ? { x: point.clientX, y: point.clientY } : null;
+  touchMoved = false;
+}, { passive: true });
+
+document.addEventListener("touchmove", (event) => {
+  const point = event.touches && event.touches[0];
+  if (!point || !touchStart) return;
+  if (Math.abs(point.clientX - touchStart.x) > 12 || Math.abs(point.clientY - touchStart.y) > 12) touchMoved = true;
+}, { passive: true });
+
+document.addEventListener("touchend", (event) => {
+  if (touchMoved) return;
+  const control = findControl(event);
+  if (!control) return;
+  swallowEl = control.el || control;
+  swallowUntil = Date.now() + 700;
+  event.preventDefault();
+  activate(control);
+}, { passive: false });
+
+document.addEventListener("click", (event) => {
+  const control = findControl(event);
+  if (control && Date.now() < swallowUntil && (control.el || control) === swallowEl) {
+    event.preventDefault();
+    return;
+  }
+  activate(control);
 });
 
 document.addEventListener("submit", (event) => {
