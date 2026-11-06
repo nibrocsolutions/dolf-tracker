@@ -322,6 +322,16 @@ def create_review(course_id: int, payload: ReviewIn, db: Session = Depends(get_d
     return course_out(course_or_404(db, course_id))
 
 
+@router.delete("/api/reviews/{review_id}", status_code=204)
+def delete_review(review_id: int, db: Session = Depends(get_db)) -> Response:
+    review = db.get(Review, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="That note is already gone.")
+    db.delete(review)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.get("/api/rounds")
 def list_rounds(
     status: str | None = None,

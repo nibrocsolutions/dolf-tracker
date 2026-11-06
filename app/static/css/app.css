@@ -282,6 +282,32 @@ textarea { min-height: 90px; resize: vertical; }
   max-height: 86dvh;
   overflow: auto;
 }
+.confirm p { margin: 0; }
+
+.swipe {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+}
+.swipe-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 96px;
+  border: 0;
+  border-radius: 0;
+  background: #b42318;
+  color: white;
+  font-weight: 700;
+}
+button.swipe-face {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.16s ease;
+  touch-action: pan-y;
+}
+.swipe.open .swipe-face { transform: translateX(-96px); }
 
 #nav {
   flex: none;

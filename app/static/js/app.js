@@ -53,6 +53,8 @@ const state = {
   mode: "hole",
   showThrowStats: localStorage.getItem("dolfThrowStats") === "1",
   sheet: null,
+  confirm: null,
+  admin: null,
   startCourseId: null,
   error: "",
   notice: "",
@@ -173,6 +175,7 @@ function filteredCourses() {
 async function applyHash() {
   const [a, b, c] = (location.hash || "#home").replace(/^#/, "").split("/");
   state.sheet = null;
+  state.confirm = null;
   state.course = null;
   state.round = null;
   state.stats = null;
@@ -353,28 +356,38 @@ function banners() {
   return html;
 }
 
+function roundSwipe(id, title, detail, courseName) {
+  return `<div class="swipe">
+    <button type="button" class="swipe-delete" data-act="ask-delete-round" data-id="${Number(id)}" data-name="${esc(courseName)}">Delete</button>
+    <button type="button" class="rowcard swipe-face" data-go="play/${Number(id)}">
+      <span class="rowcard-title">${esc(title)}</span>
+      <span class="muted">${esc(detail)}</span>
+    </button>
+  </div>`;
+}
+
 function renderHome() {
   const live = state.live.map((round) => {
     const line = round.summary.find((item) => item.player_id === state.playerId) || round.summary[0];
     const total = round.hide_totals || !line || !line.holes_scored ? "" : ` · ${line.strokes} (${fmtVs(line.vs_par)})`;
-    return `<button type="button" class="rowcard" data-go="play/${round.id}">
-      <span class="rowcard-title">Live · ${esc(round.course.name)}</span>
-      <span class="muted">${esc(round.layout.name)} · thru ${line ? line.thru : 0}${esc(total)}</span>
-    </button>`;
+    return roundSwipe(
+      round.id,
+      `Live · ${round.course.name}`,
+      `${round.layout.name} · thru ${line ? line.thru : 0}${total}`,
+      round.course.name,
+    );
   }).join("");
   const recent = state.recent.slice(0, 5).map((round) => {
     const line = round.summary.find((item) => item.player_id === state.playerId) || round.summary[0];
     const total = line && line.holes_scored ? `${line.strokes} (${fmtVs(line.vs_par)})` : "No score";
-    return `<button type="button" class="rowcard" data-go="play/${round.id}">
-      <span class="rowcard-title">${esc(round.course.name)}</span>
-      <span class="muted">${esc(fmtWhen(round.started_at))} · ${esc(total)}</span>
-    </button>`;
+    return roundSwipe(round.id, round.course.name, `${fmtWhen(round.started_at)} · ${total}`, round.course.name);
   }).join("");
   const courses = state.courseList.slice(0, 4);
   return `${header()}
     ${banners()}
     <section class="stack">
       <h1>Ready when you are</h1>
+      <p class="lede">Scores, rounds, and discs are saved on this Pi for each player.</p>
       <button type="button" class="primary" data-go="start">Start a round</button>
       ${live}
       ${recent ? `<h2>Recent rounds</h2>${recent}` : `<p class="empty">Your finished rounds will show up here.</p>`}
@@ -430,6 +443,7 @@ function renderCourse() {
       <strong>${esc(review.player_name)}</strong> · ${review.rating}★ · ${esc(review.conditions)}
       <div class="muted">${esc(fmtWhen(review.created_at))}</div>
       ${review.body ? `<p>${esc(review.body)}</p>` : ""}
+      ${review.player_id === state.playerId ? `<button type="button" class="secondary" data-act="ask-delete-review" data-id="${review.id}">Remove note</button>` : ""}
     </article>`
   )).join("");
   const site = safeUrl(course.website);
@@ -467,7 +481,7 @@ function renderCourse() {
         <button class="primary" type="submit">Save review</button>
       </form>
       ${reviews}
-      <button type="button" class="danger" data-act="delete-course" data-id="${course.id}">Delete course</button>
+      <button type="button" class="danger" data-act="ask-delete-course" data-id="${course.id}" data-name="${esc(course.name)}">Delete course</button>
     </section>`;
 }
 
@@ -550,6 +564,7 @@ function renderLayout() {
         <button type="button" class="secondary" data-act="remove-hole">Remove last</button>
       </div>
       <button class="primary" type="submit">Save layout</button>
+      ${state.layoutId ? `<button type="button" class="danger" data-act="ask-delete-layout" data-id="${state.layoutId}" data-course="${state.course.id}" data-name="${esc(draft.name)}">Delete layout</button>` : ""}
     </form>`;
 }
 
@@ -742,11 +757,11 @@ function renderRound() {
 }
 
 function renderPlay() {
-  const live = state.live.map((round) => (
-    `<button type="button" class="rowcard" data-go="play/${round.id}">
-      <span class="rowcard-title">${esc(round.course.name)}</span>
-      <span class="muted">Live · ${esc(round.layout.name)}</span>
-    </button>`
+  const live = state.live.map((round) => roundSwipe(
+    round.id,
+    round.course.name,
+    `Live · ${round.layout.name}`,
+    round.course.name,
   )).join("");
   return `${header()}
     ${banners()}
@@ -780,11 +795,11 @@ function renderStats() {
       <span class="muted">${course.rounds} round${course.rounds === 1 ? "" : "s"}${course.average_vs_par != null ? ` · avg ${fmtVs(course.average_vs_par)}` : ""}${course.best_vs_par != null ? ` · best ${fmtVs(course.best_vs_par)}` : ""}</span>
     </button>`
   )).join("");
-  const recent = stats.recent.map((round) => (
-    `<button type="button" class="rowcard" data-go="play/${round.round_id}">
-      <span class="rowcard-title">${esc(round.course_name)}</span>
-      <span class="muted">${esc(fmtWhen(round.started_at))}${round.holes_scored ? ` · ${round.strokes} (${fmtVs(round.vs_par)})` : ""}</span>
-    </button>`
+  const recent = stats.recent.map((round) => roundSwipe(
+    round.round_id,
+    round.course_name,
+    `${fmtWhen(round.started_at)}${round.holes_scored ? ` · ${round.strokes} (${fmtVs(round.vs_par)})` : ""}`,
+    round.course_name,
   )).join("");
   const aces = stats.aces.map((ace) => (
     `<button type="button" class="rowcard" data-go="play/${ace.round_id}">
@@ -875,7 +890,7 @@ function renderDisc() {
       <label class="check"><input type="checkbox" name="lost" ${disc && disc.lost ? "checked" : ""}> Lost</label>
       <label class="field">Notes <textarea name="notes">${value("notes")}</textarea></label>
       <button class="primary" type="submit">Save disc</button>
-      ${disc ? `<button type="button" class="danger" data-act="delete-disc" data-id="${disc.id}">Delete disc</button>` : ""}
+      ${disc ? `<button type="button" class="danger" data-act="ask-delete-disc" data-id="${disc.id}" data-name="${esc(disc.mold)}">Delete disc</button>` : ""}
     </form>`;
 }
 
@@ -897,6 +912,8 @@ function renderSheet() {
           <input name="name" maxlength="40" value="${esc(me() ? me().name : "")}" required>
           <button class="secondary" type="submit">Rename me</button>
         </form>
+        <button type="button" class="danger" data-act="ask-delete-player" data-id="${state.playerId}" data-name="${esc(me() ? me().name : "")}">Remove me</button>
+        <a class="linkish" href="/admin">Admin</a>
         <button type="button" class="secondary" data-act="sheet">Close</button>
       </div>
     </div>`;
@@ -938,7 +955,7 @@ function renderSheet() {
         <button type="button" class="secondary" data-act="copy">Copy scorecard</button>
         <button type="button" class="secondary" data-act="toggle-stats">${state.showThrowStats ? "Hide throw stats" : "Show putts and fairway"}</button>
         ${round.status === "live" ? `<button type="button" class="primary" data-act="finish">Finish round</button>` : `<button type="button" class="primary" data-act="reopen">Reopen round</button>`}
-        <button type="button" class="danger" data-act="delete-round">Delete round</button>
+        <button type="button" class="danger" data-act="ask-delete-round" data-id="${round.id}" data-name="${esc(round.course.name)}">Delete round</button>
         <button type="button" class="secondary" data-act="sheet">Close</button>
       </div>
     </div>`;
@@ -946,10 +963,19 @@ function renderSheet() {
   return "";
 }
 
+function isAdmin() {
+  return location.pathname === "/admin" || location.pathname === "/admin/";
+}
+
 function render() {
   const app = document.getElementById("app");
   const nav = document.getElementById("nav");
   document.body.classList.toggle("busy", state.busy);
+  if (isAdmin()) {
+    nav.hidden = true;
+    app.innerHTML = renderAdmin() + renderConfirm();
+    return;
+  }
   if (!state.playerId) {
     nav.hidden = true;
     app.innerHTML = renderWelcome();
@@ -977,7 +1003,60 @@ function render() {
     disc: renderDisc,
   };
   const draw = screens[state.screen] || renderHome;
-  app.innerHTML = draw() + renderSheet();
+  app.innerHTML = draw() + renderSheet() + renderConfirm();
+}
+
+function renderConfirm() {
+  const ask = state.confirm;
+  if (!ask) return "";
+  return `<div class="sheet-back">
+    <div class="sheet stack confirm" role="alertdialog" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">${esc(ask.title)}</h2>
+      <p>${esc(ask.body)}</p>
+      <button type="button" class="danger" data-act="confirm-yes">${esc(ask.yes)}</button>
+      <button type="button" class="secondary" data-act="confirm-no">Keep it</button>
+    </div>
+  </div>`;
+}
+
+function askRemove(title, body, yes, act, data) {
+  state.confirm = { title, body, yes, act, data };
+  state.sheet = null;
+  paint();
+}
+
+function renderAdmin() {
+  const info = state.admin;
+  const players = info ? info.players.map((player) => (
+    `<div class="card stack">
+      <strong>${esc(player.name)}</strong>
+      <span class="muted">${player.rounds} round${player.rounds === 1 ? "" : "s"} · ${player.scores} scores · ${player.discs} disc${player.discs === 1 ? "" : "s"}</span>
+      <button type="button" class="danger" data-act="ask-delete-admin-player" data-id="${player.id}" data-name="${esc(player.name)}">Remove ${esc(player.name)}</button>
+    </div>`
+  )).join("") : "";
+  const counts = info ? `${info.players.length} players · ${info.courses} courses · ${info.rounds} rounds (${info.live_rounds} live) · ${info.discs} discs` : "";
+  return `${banners()}
+    <section class="stack">
+      <h1>Admin</h1>
+      <p class="lede">Everything on this Pi lives in one database. Export it before you replace it. Anyone on your Wi-Fi who opens this page can do that.</p>
+      <p class="muted">${esc(counts)}</p>
+      <button type="button" class="primary" data-act="export-backup">Export full backup</button>
+      <form class="card stack" data-act="import-backup">
+        <h2>Import</h2>
+        <p>This replaces every player, course, round, and disc with the file. Type REPLACE to confirm.</p>
+        <label class="field">Backup file
+          <input id="import-file" name="file" type="file" accept="application/json,.json" required>
+        </label>
+        <label class="field">Confirmation
+          <input id="import-word" name="word" autocomplete="off" placeholder="REPLACE">
+        </label>
+        <button id="import-go" class="danger" type="submit" disabled>Replace all data</button>
+      </form>
+      <h2>Players</h2>
+      <p class="muted">Removing a player deletes their discs, notes, and scores. A round stays if someone else is still on the card.</p>
+      ${players || `<p class="empty">No players yet.</p>`}
+      <a class="linkish" href="/">Back to the scorekeeper</a>
+    </section>`;
 }
 
 function coursePayload(data) {
@@ -1073,6 +1152,18 @@ function scorecardText(round) {
   });
   if (round.notes) lines.push(round.notes);
   return lines.join("\n");
+}
+
+async function importBackup(text) {
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (err) {
+    throw new Error("That file isn't JSON.");
+  }
+  const result = await api("/api/admin/import", { method: "POST", body: payload });
+  state.admin = await api("/api/admin/summary");
+  state.notice = `Restored ${result.players} players, ${result.courses} courses, and ${result.rounds} rounds.`;
 }
 
 async function onSubmit(act, data) {
@@ -1249,22 +1340,69 @@ async function doAct(act, data) {
     return;
   }
   if (act === "delete-round") {
-    if (!window.confirm("Delete this round and its scores?")) return;
-    await api(`/api/rounds/${state.round.id}`, { method: "DELETE" });
-    sessionStorage.removeItem("dolfRound");
-    await navigate("home", true);
+    const id = Number(data.id || (state.round && state.round.id));
+    await api(`/api/rounds/${id}`, { method: "DELETE" });
+    if (state.round && state.round.id === id) sessionStorage.removeItem("dolfRound");
+    state.notice = "Round removed.";
+    if (state.screen === "round" && state.round && state.round.id === id) await navigate(state.tab || "home", true);
+    else await applyHash();
     return;
   }
   if (act === "delete-course") {
-    if (!window.confirm("Delete this course?")) return;
     await api(`/api/courses/${data.id}`, { method: "DELETE" });
+    state.notice = "Course removed.";
     await navigate("courses", true);
     return;
   }
+  if (act === "delete-layout") {
+    await api(`/api/layouts/${data.id}`, { method: "DELETE" });
+    state.notice = "Layout removed.";
+    await navigate(`courses/${data.course}`, true);
+    return;
+  }
+  if (act === "delete-review") {
+    await api(`/api/reviews/${data.id}`, { method: "DELETE" });
+    state.notice = "Note removed.";
+    await applyHash();
+    return;
+  }
   if (act === "delete-disc") {
-    if (!window.confirm("Delete this disc?")) return;
     await api(`/api/discs/${data.id}`, { method: "DELETE" });
+    state.notice = "Disc removed.";
     await navigate("bag", true);
+    return;
+  }
+  if (act === "delete-player") {
+    await api(`/api/players/${data.id}`, { method: "DELETE" });
+    if (Number(data.id) === state.playerId) {
+      localStorage.removeItem("dolfPlayerId");
+      state.playerId = null;
+      state.sheet = null;
+      state.notice = "Player removed.";
+      return;
+    }
+    state.players = await api("/api/players");
+    state.notice = "Player removed.";
+    return;
+  }
+  if (act === "delete-admin-player") {
+    await api(`/api/admin/players/${data.id}`, { method: "DELETE" });
+    state.admin = await api("/api/admin/summary");
+    state.notice = "Player removed.";
+    return;
+  }
+  if (act === "export-backup") {
+    const payload = await api("/api/admin/export");
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dolf-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    state.notice = "Backup downloaded.";
     return;
   }
   if (act === "copy") {
@@ -1357,6 +1495,87 @@ function onAct(el) {
     else run(() => navigate(state.tab || "home", true));
     return;
   }
+  if (act === "confirm-no") {
+    state.confirm = null;
+    paint();
+    return;
+  }
+  if (act === "confirm-yes") {
+    const ask = state.confirm;
+    state.confirm = null;
+    if (ask) run(() => doAct(ask.act, ask.data || {}));
+    return;
+  }
+  if (act === "ask-delete-round") {
+    askRemove(
+      "Remove this round?",
+      `Are you sure you want to remove the round at ${data.name || "this course"}? Every score on the card will be deleted.`,
+      "Remove round",
+      "delete-round",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-course") {
+    askRemove(
+      "Remove this course?",
+      `Are you sure you want to remove ${data.name || "this course"}? Layouts and notes go with it.`,
+      "Remove course",
+      "delete-course",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-layout") {
+    askRemove(
+      "Remove this layout?",
+      `Are you sure you want to remove ${data.name || "this layout"}?`,
+      "Remove layout",
+      "delete-layout",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-review") {
+    askRemove(
+      "Remove this note?",
+      "Are you sure you want to remove your condition note?",
+      "Remove note",
+      "delete-review",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-disc") {
+    askRemove(
+      "Remove this disc?",
+      `Are you sure you want to remove ${data.name || "this disc"}?`,
+      "Remove disc",
+      "delete-disc",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-player") {
+    askRemove(
+      "Remove this player?",
+      `Are you sure you want to remove ${data.name || "this player"}? This only works when they have no scorecards or notes. Their discs are removed too.`,
+      "Remove player",
+      "delete-player",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-delete-admin-player") {
+    askRemove(
+      "Remove this player?",
+      `Are you sure you want to remove ${data.name || "this player"}? Their discs, notes, and scores are deleted. A round stays if someone else is still on the card.`,
+      "Remove player",
+      "delete-admin-player",
+      data,
+    );
+    return;
+  }
   if (act === "score" && state.round && state.round.status === "live") {
     data.fresh = scoreFor(state.round, Number(data.player), state.hole) ? "" : "1";
     rememberScore(Number(data.player), Number(data.strokes));
@@ -1389,7 +1608,12 @@ function activate(control) {
   if (!control) return;
   if (control.kind === "sheet") {
     state.sheet = null;
+    state.confirm = null;
     paint();
+    return;
+  }
+  if (control.kind === "go" && control.el.closest(".swipe.open")) {
+    control.el.closest(".swipe").classList.remove("open");
     return;
   }
   if (control.kind === "go") {
@@ -1407,6 +1631,8 @@ let touchStart = null;
 let touchMoved = false;
 let swallowEl = null;
 let swallowUntil = 0;
+let rowDrag = null;
+let ignoreClickUntil = 0;
 
 document.addEventListener("touchstart", (event) => {
   const point = event.changedTouches && event.changedTouches[0];
@@ -1431,6 +1657,11 @@ document.addEventListener("touchend", (event) => {
 }, { passive: false });
 
 document.addEventListener("click", (event) => {
+  if (Date.now() < ignoreClickUntil) {
+    ignoreClickUntil = 0;
+    event.preventDefault();
+    return;
+  }
   const control = findControl(event);
   if (control && Date.now() < swallowUntil && (control.el || control) === swallowEl) {
     event.preventDefault();
@@ -1439,16 +1670,78 @@ document.addEventListener("click", (event) => {
   activate(control);
 });
 
+document.addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  const row = eventElement(event) && eventElement(event).closest(".swipe");
+  if (!row) return;
+  rowDrag = { row, id: event.pointerId, x: event.clientX, y: event.clientY, axis: null, dx: 0 };
+}, { passive: true });
+
+document.addEventListener("pointermove", (event) => {
+  if (!rowDrag || event.pointerId !== rowDrag.id) return;
+  const dx = event.clientX - rowDrag.x;
+  const dy = event.clientY - rowDrag.y;
+  if (!rowDrag.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+    rowDrag.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+  }
+  if (rowDrag.axis !== "x") return;
+  event.preventDefault();
+  touchMoved = true;
+  const base = rowDrag.row.classList.contains("open") ? -96 : 0;
+  rowDrag.dx = Math.max(-96, Math.min(0, base + dx));
+  const face = rowDrag.row.querySelector(".swipe-face");
+  if (face) face.style.transform = `translateX(${rowDrag.dx}px)`;
+}, { passive: false });
+
+function endRowDrag(event) {
+  if (!rowDrag || (event && event.pointerId !== rowDrag.id)) return;
+  const row = rowDrag.row;
+  const horizontal = rowDrag.axis === "x";
+  const dx = rowDrag.dx;
+  const face = row.querySelector(".swipe-face");
+  rowDrag = null;
+  if (!horizontal) return;
+  if (face) face.style.transform = "";
+  row.classList.toggle("open", dx <= -48);
+  document.querySelectorAll(".swipe.open").forEach((other) => {
+    if (other !== row) other.classList.remove("open");
+  });
+  ignoreClickUntil = Date.now() + 600;
+}
+
+document.addEventListener("pointerup", endRowDrag);
+document.addEventListener("pointercancel", endRowDrag);
+
 document.addEventListener("submit", (event) => {
   if (!(event.target instanceof HTMLFormElement)) return;
   event.preventDefault();
   const form = event.target;
   const data = new FormData(form);
+  if (form.dataset.act === "import-backup") {
+    const chosen = form.querySelector("#import-file");
+    const file = chosen && chosen.files && chosen.files[0];
+    const word = String(data.get("word") || "").trim();
+    if (!file || word !== "REPLACE") {
+      state.error = !file ? "Choose a backup file first." : "Type REPLACE to confirm the import.";
+      paint();
+      return;
+    }
+    file.text().then((text) => run(() => importBackup(text))).catch(() => {
+      state.error = "That file could not be read.";
+      paint();
+    });
+    return;
+  }
   run(() => onSubmit(form.dataset.act, data));
 });
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (target.id === "import-word") {
+    const button = document.getElementById("import-go");
+    if (button) button.disabled = target.value.trim() !== "REPLACE";
+    return;
+  }
   if (target.id === "course-q") {
     state.courseFilter = target.value;
     const list = document.getElementById("course-list");
@@ -1480,9 +1773,19 @@ document.addEventListener("change", (event) => {
 });
 
 window.addEventListener("popstate", () => {
-  if (!state.playerId) return;
+  if (isAdmin() || !state.playerId) return;
   run(() => applyHash());
 });
+
+async function bootAdmin() {
+  document.getElementById("nav").hidden = true;
+  try {
+    state.admin = await api("/api/admin/summary");
+  } catch (err) {
+    state.error = err.message || "Dolf can't reach its server.";
+  }
+  render();
+}
 
 async function boot() {
   state.playerId = Number(localStorage.getItem("dolfPlayerId")) || null;
@@ -1508,4 +1811,5 @@ async function boot() {
   render();
 }
 
-boot();
+if (isAdmin()) bootAdmin();
+else boot();
