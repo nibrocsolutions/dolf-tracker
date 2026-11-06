@@ -1,0 +1,17 @@
+services:
+  dolf-tracker:
+    build: .
+    image: dolf-tracker:latest
+    container_name: dolf-tracker
+    ports:
+      - "8092:8092"
+    volumes:
+      - dolf-data:/data
+    environment:
+      DATA_DIR: /data
+      PORT: "8092"
+      SEED_DEMO: "1"
+    restart: unless-stopped
+
+volumes:
+  dolf-data:
