@@ -729,18 +729,29 @@ function renderRound() {
     </article>`;
   }).join("");
 
+  const columnClass = (item) => {
+    const parts = [];
+    if (item.number === hole.number) parts.push("here");
+    if (item.number === 10) parts.push("split");
+    return parts.join(" ");
+  };
+  const holeHeads = holes.map((item) => (
+    `<th class="hole-no ${columnClass(item)}" scope="col"><button type="button" data-act="hole" data-hole="${item.number}" aria-label="Hole ${item.number}">${item.number}</button></th>`
+  )).join("");
+  const parCells = holes.map((item) => `<td class="${columnClass(item)}">${item.par}</td>`).join("");
+  const parTotal = holes.reduce((sum, item) => sum + Number(item.par || 0), 0);
   const cardRows = round.players.map((player) => {
     const cells = holes.map((item) => {
       const score = scoreFor(round, player.id, item.number);
-      const text = score ? score.strokes : "";
-      const klass = score ? vsClass(score.vs_par) : "";
-      return `<td><button type="button" class="${klass}" data-act="hole" data-hole="${item.number}">${text}</button></td>`;
+      const text = score ? score.strokes : "–";
+      const tone = score ? vsClass(score.vs_par) : "empty";
+      return `<td class="${columnClass(item)}"><button type="button" class="${tone}" data-act="hole" data-hole="${item.number}" aria-label="Hole ${item.number}${score ? `, ${score.strokes}` : ""}">${text}</button></td>`;
     }).join("");
     const summary = round.summary.find((item) => item.player_id === player.id);
-    const total = !round.hide_totals && summary && summary.holes_scored ? `${summary.strokes} (${fmtVs(summary.vs_par)})` : "";
-    return `<tr><th class="name">${esc(player.name)}</th>${cells}<td>${esc(total)}</td></tr>`;
+    const showTotal = !round.hide_totals && summary && summary.holes_scored;
+    const total = showTotal ? `<b>${summary.strokes}</b> <span class="muted">${esc(fmtVs(summary.vs_par))}</span>` : "–";
+    return `<tr><th class="name" scope="row">${esc(player.name)}</th>${cells}<td class="tot">${total}</td></tr>`;
   }).join("");
-  const parCells = holes.map((item) => `<td>${item.par}</td>`).join("");
 
   return `${header("round")}
     ${banners()}
@@ -759,9 +770,12 @@ function renderRound() {
         <button type="button" class="${state.mode === "hole" ? "on" : ""}" data-act="mode" data-mode="hole">Hole</button>
         <button type="button" class="${state.mode === "card" ? "on" : ""}" data-act="mode" data-mode="card">Card</button>
       </div>
-      <div class="rail">${rail}</div>
+      ${state.mode === "card" ? "" : `<div class="rail">${rail}</div>`}
       ${state.mode === "card" ? `<div class="card cardgrid"><table>
-        <thead><tr><th class="name">Par</th>${parCells}<th>Tot</th></tr></thead>
+        <thead>
+          <tr><th class="name" scope="row">Hole</th>${holeHeads}<th class="tot" scope="col">Tot</th></tr>
+          <tr><th class="name" scope="row">Par</th>${parCells}<td class="tot">${parTotal}</td></tr>
+        </thead>
         <tbody>${cardRows}</tbody>
       </table></div>` : `<div class="stack">
         <h2>Hole ${hole.number} <span class="muted">par ${hole.par}${hole.distance_ft ? ` · ${esc(fmtFeet(hole.distance_ft))}` : ""}</span></h2>
@@ -1030,11 +1044,24 @@ function render() {
 
 function revealCurrentHole() {
   const rail = document.querySelector("#app .rail");
-  if (!rail) return;
-  const current = rail.querySelector("button.on");
-  if (!current) return;
-  const target = current.offsetLeft - (rail.clientWidth - current.offsetWidth) / 2;
-  rail.scrollLeft = Math.max(0, target);
+  if (rail) {
+    const current = rail.querySelector("button.on");
+    if (current) {
+      const target = current.offsetLeft - (rail.clientWidth - current.offsetWidth) / 2;
+      rail.scrollLeft = Math.max(0, target);
+    }
+  }
+  const card = document.querySelector("#app .cardgrid");
+  const column = card && card.querySelector("thead .here");
+  if (!card || !column) return;
+  const name = card.querySelector(".name");
+  const nameWidth = name ? name.getBoundingClientRect().width : 0;
+  const scrollerBox = card.getBoundingClientRect();
+  const cellBox = column.getBoundingClientRect();
+  const viewLeft = scrollerBox.left + nameWidth;
+  const viewWidth = card.clientWidth - nameWidth;
+  const delta = cellBox.left - viewLeft - (viewWidth - cellBox.width) / 2;
+  card.scrollLeft = Math.max(0, card.scrollLeft + delta);
 }
 
 function renderConfirm() {
