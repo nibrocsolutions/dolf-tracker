@@ -756,11 +756,12 @@ function renderRound() {
   const cardRows = round.players.map((player) => {
     const cells = holes.map((item) => {
       const score = scoreFor(round, player.id, item.number);
-      const text = score && score.strokes != null ? String(score.strokes) : String(item.par);
-      const tone = score ? vsClass(score.vs_par) : "empty";
-      const spoken = score && score.strokes != null
+      const played = score && score.strokes != null;
+      const text = played ? String(score.strokes) : "";
+      const tone = played ? vsClass(score.vs_par) : "empty";
+      const spoken = played
         ? `Hole ${item.number}, ${score.strokes}`
-        : `Hole ${item.number}, par ${item.par}, no score yet`;
+        : `Hole ${item.number}, not played`;
       return `<td class="${columnClass(item)}"><button type="button" class="${tone}" data-act="hole" data-hole="${item.number}" aria-label="${spoken}">${text}</button></td>`;
     }).join("");
     const summary = round.summary.find((item) => item.player_id === player.id);
