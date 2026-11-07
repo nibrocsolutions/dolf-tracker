@@ -248,17 +248,64 @@ textarea { min-height: 90px; resize: vertical; }
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-.cardgrid { overflow-x: auto; }
-.cardgrid table { border-collapse: collapse; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
-.cardgrid th, .cardgrid td { min-width: 42px; text-align: center; padding: 8px 4px; border-bottom: 1px solid var(--line); }
-.cardgrid .name { position: sticky; left: 0; background: var(--paper); text-align: left; min-width: 88px; font-weight: 700; }
+.card.cardgrid { padding: 0; overflow-x: auto; }
+.cardgrid table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-variant-numeric: tabular-nums; }
+.cardgrid th, .cardgrid td {
+  width: 46px;
+  min-width: 46px;
+  max-width: 46px;
+  height: 44px;
+  text-align: center;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: white;
+}
+.cardgrid .name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 92px;
+  min-width: 92px;
+  max-width: 92px;
+  padding: 0 10px;
+  background: var(--paper);
+  text-align: left;
+  font-weight: 700;
+  box-shadow: 1px 0 0 var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cardgrid thead .name { color: var(--muted); font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; }
+.cardgrid .hole-no { color: var(--ink); font-size: 16px; background: #f6f3ec; }
+.cardgrid thead td { color: var(--muted); font-weight: 700; background: #fbf8f1; }
+.cardgrid .tot {
+  width: 76px;
+  min-width: 76px;
+  max-width: 76px;
+  font-weight: 700;
+  border-right: 0;
+  white-space: nowrap;
+}
+.cardgrid .split { border-left: 2px solid #c9c0ab; }
+.cardgrid td.here, .cardgrid th.here { background: #e7f6ec; }
+.cardgrid thead td.here { background: #e7f6ec; }
+.cardgrid thead .hole-no.here { background: var(--pine); color: white; }
+.cardgrid thead .hole-no.here button { color: white; }
 .cardgrid button {
+  display: block;
+  width: 100%;
+  height: 44px;
   border: 0;
+  border-radius: 0;
   background: transparent;
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
   font-weight: 750;
 }
+.cardgrid button.empty { color: #b7b1a4; font-weight: 600; }
 
 .stats {
   display: grid;
