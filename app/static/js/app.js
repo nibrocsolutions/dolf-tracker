@@ -60,6 +60,7 @@ const state = {
   error: "",
   notice: "",
   busy: false,
+  leftBlank: new Set(),
 };
 
 function esc(value) {
@@ -669,7 +670,32 @@ function holeByNumber(round, number) {
 }
 
 function scoreFor(round, playerId, hole) {
-  return round.scores.find((score) => score.player_id === playerId && score.hole_number === hole) || null;
+  if (!round || !round.scores) return null;
+  const player = Number(playerId);
+  const holeNumber = Number(hole);
+  return round.scores.find((score) => Number(score.player_id) === player && Number(score.hole_number) === holeNumber) || null;
+}
+
+function playedScoreText(score) {
+  if (!score || score.strokes == null || score.strokes === "") return "";
+  const strokes = Number(score.strokes);
+  if (!Number.isFinite(strokes) || strokes < 1) return "";
+  return String(strokes);
+}
+
+function commitShownScores() {
+  const round = state.round;
+  if (!round || round.status !== "live") return;
+  const hole = holeByNumber(round, state.hole);
+  if (!hole) return;
+  const strokes = Math.min(20, Math.max(1, Number(hole.par) || 3));
+  round.players.forEach((player) => {
+    const key = `${round.id}:${player.id}:${hole.number}`;
+    if (state.leftBlank.has(key)) return;
+    if (scoreFor(round, player.id, hole.number)) return;
+    rememberScore(player.id, strokes, hole.number);
+    queueScore(round.id, player.id, hole.number, strokes);
+  });
 }
 
 function resultClass(result, vs) {
@@ -756,12 +782,9 @@ function renderRound() {
   const cardRows = round.players.map((player) => {
     const cells = holes.map((item) => {
       const score = scoreFor(round, player.id, item.number);
-      const played = score && score.strokes != null;
-      const text = played ? String(score.strokes) : "";
-      const tone = played ? vsClass(score.vs_par) : "empty";
-      const spoken = played
-        ? `Hole ${item.number}, ${score.strokes}`
-        : `Hole ${item.number}, not played`;
+      const text = playedScoreText(score);
+      const tone = text ? vsClass(score.vs_par) : "empty";
+      const spoken = text ? `Hole ${item.number}, ${text}` : `Hole ${item.number}, not played`;
       return `<td class="${columnClass(item)}"><button type="button" class="${tone}" data-act="hole" data-hole="${item.number}" aria-label="${spoken}">${text}</button></td>`;
     }).join("");
     const summary = round.summary.find((item) => item.player_id === player.id);
@@ -802,7 +825,7 @@ function renderRound() {
       </div>`}
       <div class="pager">
         <button type="button" class="secondary" data-act="hole" data-hole="${Math.max(1, hole.number - 1)}">Previous</button>
-        <button type="button" class="secondary" data-act="hole" data-hole="${Math.min(holes.length, hole.number + 1)}">Next</button>
+        <button type="button" class="secondary" data-act="hole" data-commit="1" data-hole="${Math.min(holes.length, hole.number + 1)}">Next</button>
       </div>
       ${live ? `<button type="button" class="primary" data-act="ask-finish">Finish round</button>` : ""}
     </section>`;
@@ -1199,6 +1222,7 @@ function rememberScore(playerId, strokes, holeNumber = state.hole) {
   const previous = scoreFor(round, playerId, holeNumber);
   const keep = round.scores.filter((score) => !(score.player_id === playerId && score.hole_number === holeNumber));
   if (strokes != null) {
+    state.leftBlank.delete(`${round.id}:${playerId}:${holeNumber}`);
     keep.push({
       player_id: playerId,
       hole_number: holeNumber,
@@ -1672,6 +1696,7 @@ function onAct(el) {
     return;
   }
   if (act === "hole") {
+    if (data.commit === "1") commitShownScores();
     const maxHole = state.round ? state.round.layout.holes.length : 1;
     state.hole = Math.min(Math.max(Number(data.hole) || 1, 1), maxHole);
     state.mode = "hole";
@@ -1842,7 +1867,10 @@ function onAct(el) {
     data.fresh = scoreFor(state.round, Number(data.player), state.hole) ? "" : "1";
     rememberScore(Number(data.player), Number(data.strokes));
   }
-  if (act === "clear-score" && state.round) rememberScore(Number(data.player), null);
+  if (act === "clear-score" && state.round) {
+    state.leftBlank.add(`${state.round.id}:${Number(data.player)}:${state.hole}`);
+    rememberScore(Number(data.player), null);
+  }
   run(() => doAct(act, data));
 }
 
