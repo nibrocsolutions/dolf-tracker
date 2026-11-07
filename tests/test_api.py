@@ -183,6 +183,44 @@ def test_round_scores_stats_and_tee_order(client):
     assert stats["courses"][0]["name"] == "Joe Eakes Park"
 
 
+def test_finished_round_shows_par_for_holes_played_without_a_saved_row(client):
+    player = _player(client, "Pat")
+    course = _course_by_name(client, "Trinity at Good Hops")
+    layout = course["layouts"][0]
+    pars = {hole["number"]: hole["par"] for hole in layout["holes"]}
+    started = client.post(
+        "/api/rounds",
+        json={"course_id": course["id"], "layout_id": layout["id"], "player_ids": [player["id"]]},
+    )
+    assert started.status_code == 201, started.text
+    round_id = started.json()["id"]
+    client.put(
+        f"/api/rounds/{round_id}/scores",
+        json={"player_id": player["id"], "hole_number": 1, "strokes": pars[1] + 1},
+    )
+    client.put(
+        f"/api/rounds/{round_id}/scores",
+        json={"player_id": player["id"], "hole_number": 3, "strokes": pars[3] - 1},
+    )
+    live = client.get(f"/api/rounds/{round_id}")
+    live_holes = {score["hole_number"] for score in live.json()["scores"]}
+    assert live_holes == {1, 3}
+
+    finished = client.post(f"/api/rounds/{round_id}/finish")
+    assert finished.status_code == 200, finished.text
+    scores = {score["hole_number"]: score for score in finished.json()["scores"] if score["player_id"] == player["id"]}
+    assert scores[1]["strokes"] == pars[1] + 1
+    assert scores[2]["strokes"] == pars[2]
+    assert scores[2]["vs_par"] == 0
+    assert scores[3]["strokes"] == pars[3] - 1
+    assert 4 not in scores
+
+    again = client.get(f"/api/rounds/{round_id}").json()
+    again_scores = {score["hole_number"]: score["strokes"] for score in again["scores"]}
+    assert again_scores[2] == pars[2]
+    assert 4 not in again_scores
+
+
 def test_layout_review_disc_and_delete_guard(client):
     player = _player(client, "Riley")
     course = _course_by_name(client, "Arrowhead Park")

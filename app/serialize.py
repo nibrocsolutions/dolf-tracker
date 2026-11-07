@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from app.models import Course, Disc, Hole, Layout, Player, Review, Round
 from app.scoring import RESULT_KEYS, Thrower, format_vs, hole_result, result_label, throwing_order
@@ -151,11 +152,48 @@ def _par_for(holes: dict[int, Hole], number: int) -> int:
     return hole.par if hole else 3
 
 
+def missing_finished_pars(round_: Round) -> list[tuple[int, int, int]]:
+    """Pars for holes already played on a finished round that were never stored.
+
+    Older rounds kept a birdie or bogey, and left a par as no row. The played
+    stretch is every hole up through the last hole that has a saved score.
+    """
+    if round_.status != "finished" or not round_.scores:
+        return []
+    played_through = max(score.hole_number for score in round_.scores)
+    holes = {hole.number: hole for hole in round_.layout.holes}
+    have = {(score.player_id, score.hole_number) for score in round_.scores}
+    missing = []
+    for seat in round_.players:
+        for number in range(1, played_through + 1):
+            if (seat.player_id, number) in have:
+                continue
+            hole = holes.get(number)
+            if hole is None:
+                continue
+            missing.append((seat.player_id, number, hole.par))
+    return missing
+
+
+class _SavedPar(NamedTuple):
+    player_id: int
+    hole_number: int
+    strokes: int
+    putts: None = None
+    fairway: None = None
+
+
+def effective_scores(round_: Round) -> list:
+    stored = list(round_.scores)
+    extra = [_SavedPar(player_id, number, strokes) for player_id, number, strokes in missing_finished_pars(round_)]
+    return stored + extra
+
+
 def score_lines(round_: Round) -> list[dict]:
     holes = {hole.number: hole for hole in round_.layout.holes}
     lines = []
     for seat in sorted(round_.players, key=lambda item: item.tee_order):
-        mine = [score for score in round_.scores if score.player_id == seat.player_id]
+        mine = [score for score in effective_scores(round_) if score.player_id == seat.player_id]
         strokes = sum(score.strokes for score in mine)
         par = sum(_par_for(holes, score.hole_number) for score in mine)
         results = {key: 0 for key in RESULT_KEYS}
@@ -189,7 +227,7 @@ def round_out(round_: Round) -> dict:
     holes = sorted(round_.layout.holes, key=lambda hole: hole.number)
     hole_pars = {hole.number: hole for hole in holes}
     throwers = [Thrower(seat.player_id, seat.player.name) for seat in sorted(round_.players, key=lambda item: item.tee_order)]
-    score_map = {(score.player_id, score.hole_number): score.strokes for score in round_.scores}
+    score_map = {(score.player_id, score.hole_number): score.strokes for score in effective_scores(round_)}
     tee_order = {
         str(hole.number): [thrower.id for thrower in throwing_order(throwers, score_map, hole.number)]
         for hole in holes
@@ -224,7 +262,7 @@ def round_out(round_: Round) -> dict:
                 "result_label": result_label(hole_result(score.strokes, _par_for(hole_pars, score.hole_number))),
                 "vs_par": score.strokes - _par_for(hole_pars, score.hole_number),
             }
-            for score in sorted(round_.scores, key=lambda item: (item.hole_number, item.player_id))
+            for score in sorted(effective_scores(round_), key=lambda item: (item.hole_number, item.player_id))
         ],
         "summary": score_lines(round_),
         "tee_order_by_hole": tee_order,
