@@ -20,7 +20,7 @@ from app.schemas import (
     RoundPlayerIn,
     ScoreIn,
 )
-from app.serialize import course_out, disc_out, player_out, round_brief, round_out
+from app.serialize import course_out, disc_out, missing_finished_pars, player_out, round_brief, round_out
 from app.stats import player_stats
 from app.database import get_db
 
@@ -381,9 +381,22 @@ def start_round(payload: RoundCreate, db: Session = Depends(get_db)) -> dict:
     return round_out(round_or_404(db, round_.id))
 
 
+def _save_finished_pars(db: Session, round_: Round) -> Round:
+    missing = missing_finished_pars(round_)
+    if not missing:
+        return round_
+    for player_id, hole_number, strokes in missing:
+        db.add(HoleScore(round_id=round_.id, player_id=player_id, hole_number=hole_number, strokes=strokes))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return round_or_404(db, round_.id)
+
+
 @router.get("/api/rounds/{round_id}")
 def get_round(round_id: int, db: Session = Depends(get_db)) -> dict:
-    return round_out(round_or_404(db, round_id))
+    return round_out(_save_finished_pars(db, round_or_404(db, round_id)))
 
 
 @router.patch("/api/rounds/{round_id}")
@@ -415,12 +428,12 @@ def finish_round(round_id: int, db: Session = Depends(get_db)) -> dict:
     round_.status = "finished"
     round_.finished_at = utcnow()
     db.commit()
-    return round_out(round_or_404(db, round_.id))
+    return round_out(_save_finished_pars(db, round_or_404(db, round_.id)))
 
 
 @router.post("/api/rounds/{round_id}/reopen")
 def reopen_round(round_id: int, db: Session = Depends(get_db)) -> dict:
-    round_ = round_or_404(db, round_id)
+    round_ = _save_finished_pars(db, round_or_404(db, round_id))
     round_.status = "live"
     round_.finished_at = None
     db.commit()
