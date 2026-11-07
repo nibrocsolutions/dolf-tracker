@@ -42,6 +42,7 @@ const state = {
   round: null,
   live: [],
   recent: [],
+  playerRounds: [],
   stats: null,
   discs: [],
   discId: null,
@@ -132,7 +133,7 @@ async function api(path, options = {}) {
   try {
     response = await fetch(path, opts);
   } catch (err) {
-    throw new Error("The Pi didn't answer. Try that again.");
+    throw new Error("That didn't go through. Try again.");
   } finally {
     clearTimeout(timer);
   }
@@ -189,10 +190,17 @@ async function applyHash() {
     state.course = await api(`/api/courses/${b}`);
     return;
   }
+  if (a === "rounds") {
+    state.tab = "stats";
+    state.screen = "rounds";
+    state.playerRounds = await api(`/api/rounds?player_id=${state.playerId}`);
+    return;
+  }
   if (a === "play" && b) {
     state.tab = "play";
     state.screen = "round";
     state.round = await api(`/api/rounds/${b}`);
+    state.mode = "hole";
     const maxHole = state.round.layout.holes.length || 1;
     const saved = Number(sessionStorage.getItem("dolfHole") || 1);
     state.hole = Math.min(Math.max(saved || 1, 1), maxHole);
@@ -276,7 +284,7 @@ async function run(work) {
   try {
     await work();
   } catch (err) {
-    state.error = err.message || "The Pi didn't answer. Try that again.";
+    state.error = err.message || "That didn't go through. Try again.";
     if (state.screen === "round" && state.round) {
       try {
         state.round = await api(`/api/rounds/${state.round.id}`);
@@ -333,7 +341,7 @@ function renderWelcome() {
   )).join("");
   return `<section class="stack">
     <h1>Dolf</h1>
-    <p class="lede">Keep score on the course, look up layouts, and track how your rounds are trending. This stays on your Pi.</p>
+    <p class="lede">Keep score on the course, look up layouts, and track how your rounds are trending.</p>
     ${picks ? `<div class="stack">${picks}</div>` : ""}
     <form class="card stack" data-act="welcome">
       <label class="field">What should we call you?
@@ -357,6 +365,10 @@ function banners() {
   if (state.error) html += `<p class="banner bad" role="alert">${esc(state.error)}</p>`;
   if (state.notice) html += `<p class="banner good">${esc(state.notice)}</p>`;
   return html;
+}
+
+function roundsHeading() {
+  return `<h2><button type="button" class="section-link" data-go="rounds">Rounds <span aria-hidden="true">›</span></button></h2>`;
 }
 
 function roundSwipe(id, title, detail, courseName) {
@@ -390,11 +402,12 @@ function renderHome() {
     ${banners()}
     <section class="stack">
       <h1>Ready when you are</h1>
-      <p class="lede">Scores, rounds, and discs are saved on this Pi for each player.</p>
+      <p class="lede">Scores, rounds, and discs are saved for each player.</p>
       <button type="button" class="primary" data-go="start">Start a round</button>
       ${live}
-      ${recent ? `<h2>Recent rounds</h2>${recent}` : `<p class="empty">Your finished rounds will show up here.</p>`}
-      <h2>Courses on this Pi</h2>
+      ${roundsHeading()}
+      ${recent || `<p class="empty">Finished rounds show up here.</p>`}
+      <h2>Courses</h2>
       ${courseCards(courses)}
       <button type="button" class="secondary" data-go="courses">All courses</button>
     </section>`;
@@ -576,7 +589,7 @@ function renderDiscover() {
     `<article class="card stack">
       <strong>${esc(course.name)}</strong>
       <span class="muted">${esc(place(course) || "Mapped course")} · ${course.hole_count} holes on the map tag</span>
-      ${course.imported ? `<span class="muted">Already on this Pi</span>` : `<button type="button" class="primary" data-act="import" data-index="${index}">Save course</button>`}
+      ${course.imported ? `<span class="muted">Already saved</span>` : `<button type="button" class="primary" data-act="import" data-index="${index}">Save course</button>`}
     </article>`
   )).join("");
   return `${header("discover")}
@@ -743,9 +756,12 @@ function renderRound() {
   const cardRows = round.players.map((player) => {
     const cells = holes.map((item) => {
       const score = scoreFor(round, player.id, item.number);
-      const text = score ? score.strokes : "–";
+      const text = score && score.strokes != null ? String(score.strokes) : String(item.par);
       const tone = score ? vsClass(score.vs_par) : "empty";
-      return `<td class="${columnClass(item)}"><button type="button" class="${tone}" data-act="hole" data-hole="${item.number}" aria-label="Hole ${item.number}${score ? `, ${score.strokes}` : ""}">${text}</button></td>`;
+      const spoken = score && score.strokes != null
+        ? `Hole ${item.number}, ${score.strokes}`
+        : `Hole ${item.number}, par ${item.par}, no score yet`;
+      return `<td class="${columnClass(item)}"><button type="button" class="${tone}" data-act="hole" data-hole="${item.number}" aria-label="${spoken}">${text}</button></td>`;
     }).join("");
     const summary = round.summary.find((item) => item.player_id === player.id);
     const showTotal = !round.hide_totals && summary && summary.holes_scored;
@@ -788,6 +804,26 @@ function renderRound() {
         <button type="button" class="secondary" data-act="hole" data-hole="${Math.min(holes.length, hole.number + 1)}">Next</button>
       </div>
       ${live ? `<button type="button" class="primary" data-act="ask-finish">Finish round</button>` : ""}
+    </section>`;
+}
+
+function renderRounds() {
+  const person = me();
+  const all = state.playerRounds || [];
+  const ordered = all.filter((round) => round.status === "live").concat(all.filter((round) => round.status !== "live"));
+  const rows = ordered.map((round) => {
+    const line = (round.summary || []).find((item) => item.player_id === state.playerId) || (round.summary || [])[0];
+    const total = line && line.holes_scored ? `${line.strokes} (${fmtVs(line.vs_par)})` : "No score";
+    const when = fmtWhen(round.started_at);
+    const title = round.status === "live" ? `Live · ${round.course.name}` : round.course.name;
+    return roundSwipe(round.id, title, `${when} · ${round.layout.name} · ${total}`, round.course.name);
+  }).join("");
+  return `${header("rounds")}
+    ${banners()}
+    <section class="stack">
+      <h1>Rounds</h1>
+      <p class="muted">${person ? esc(person.name) : "Player"} · open a round to change the card. Swipe left to remove one.</p>
+      ${rows || `<p class="empty">No rounds yet.</p>`}
     </section>`;
 }
 
@@ -849,7 +885,7 @@ function renderStats() {
       <h1>${esc(stats.player.name)}</h1>
       <div class="stats">
         <article class="card stat"><b class="${stats.average_vs_par < 0 ? "under" : ""}">${stats.average_vs_par == null ? "—" : fmtVs(stats.average_vs_par)}</b><span class="muted">Avg vs par</span></article>
-        <article class="card stat"><b>${stats.rounds_finished}</b><span class="muted">Rounds</span></article>
+        <button type="button" class="card stat" data-go="rounds"><b>${stats.rounds_finished}</b><span class="muted">Rounds</span></button>
         <article class="card stat"><b>${stats.courses_played}</b><span class="muted">Courses</span></article>
         <article class="card stat"><b>${results.ace}</b><span class="muted">Aces</span></article>
       </div>
@@ -858,7 +894,8 @@ function renderStats() {
       ${stats.fairway_pct != null ? `<p class="muted">Fairway ${stats.fairway_pct}% · parked ${stats.parked}${stats.putts_per_hole != null ? ` · ${stats.putts_per_hole} putts per hole` : ""}</p>` : ""}
       ${aces ? `<h2>Aces</h2>${aces}` : ""}
       ${courses ? `<h2>By course</h2>${courses}` : ""}
-      ${recent ? `<h2>Recent</h2>${recent}` : ""}
+      ${roundsHeading()}
+      ${recent || `<p class="empty">No finished rounds yet.</p>`}
     </section>`;
 }
 
@@ -1032,6 +1069,7 @@ function render() {
     discover: renderDiscover,
     start: renderStart,
     round: renderRound,
+    rounds: renderRounds,
     play: renderPlay,
     stats: renderStats,
     bag: renderBag,
@@ -1096,7 +1134,7 @@ function renderAdmin() {
   return `${banners()}
     <section class="stack">
       <h1>Admin</h1>
-      <p class="lede">Everything on this Pi lives in one database. Export it before you replace it. Anyone on your Wi-Fi who opens this page can do that.</p>
+      <p class="lede">Everything lives in one database. Export it before you replace it. Anyone on your Wi-Fi who opens this page can do that.</p>
       <p class="muted">${esc(counts)}</p>
       <button type="button" class="primary" data-act="export-backup">Export full backup</button>
       <form class="card stack" data-act="import-backup">
@@ -1224,7 +1262,7 @@ async function flushScores() {
     }
   } catch (err) {
     scoreQueue.clear();
-    state.error = err.message || "The Pi didn't answer. Try that again.";
+    state.error = err.message || "That didn't go through. Try again.";
     if (state.round) {
       try {
         state.round = await api(`/api/rounds/${state.round.id}`);
