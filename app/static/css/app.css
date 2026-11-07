@@ -114,7 +114,7 @@ h2 { font-size: 18px; margin: 0; }
   gap: 2px;
 }
 .rowcard-title { font-weight: 700; }
-.primary, .secondary, .danger, .pager button, .numpad button, .chip, .quicks button {
+.primary, .secondary, .danger, .pager button, .chip, .quicks button {
   border-radius: 14px;
   border: 1px solid transparent;
   min-height: 48px;
@@ -132,7 +132,7 @@ h2 { font-size: 18px; margin: 0; }
   font-weight: 650;
 }
 .danger { color: var(--over); }
-.primary:disabled, .numpad button:disabled { opacity: 0.45; }
+.primary:disabled { opacity: 0.45; }
 
 .banner {
   border-radius: 14px;
@@ -207,17 +207,30 @@ textarea { min-height: 90px; resize: vertical; }
 .under { color: var(--under); }
 .over { color: var(--over); }
 .even { color: var(--ink); }
-.numpad { display: flex; flex-wrap: wrap; gap: 6px; }
-.numpad button {
-  min-width: 44px;
-  background: white;
+.stepper {
+  display: grid;
+  grid-template-columns: 72px 1fr 72px;
   border: 1px solid var(--line);
-  font-weight: 750;
+  border-radius: 16px;
+  overflow: hidden;
+  background: white;
 }
-.numpad button.on.under { background: var(--under); color: white; }
-.numpad button.on.over { background: var(--over); color: white; }
-.numpad button.on.even { background: var(--ink); color: white; }
-.numpad button.on.ace { background: var(--orange); color: white; border-color: var(--orange); }
+.stepper button {
+  min-height: 64px;
+  border: 0;
+  border-radius: 0;
+  background: white;
+  font-size: 32px;
+  font-weight: 700;
+}
+.stepper button + button { border-left: 1px solid var(--line); }
+.stepper-value { font-variant-numeric: tabular-nums; font-size: 34px; }
+.stepper-value.unset { color: var(--muted); }
+.stepper-value.under { background: #e7f6ec; color: var(--under); }
+.stepper-value.over { background: #fde8e4; color: var(--over); }
+.stepper-value.even { background: #f6f3ec; }
+.stepper-value.ace { background: #fff1e4; color: var(--orange); }
+.stepper button:disabled { opacity: 0.45; }
 
 .details { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .details button, .step {

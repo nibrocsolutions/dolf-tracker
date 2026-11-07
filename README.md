@@ -31,12 +31,12 @@ docker compose down
 ## What you can do
 
 - Start a round on a course and layout, with everyone on the card
-- Tap a score for each hole. The running total, birdie, and bogey update as you go
+- Score a hole with minus, the score, and plus. The running total, birdie, and bogey update as you go
 - Leave the page and come back. A live round stays open until you finish it
 - Hide the running score, leave a note, and mark weather
 - See who throws next from the previous hole
 - Optionally record putts and whether the drive was in the fairway, left, right, or parked
-- Finish a round, reopen it, or delete it
+- Finish a round after a confirmation, reopen it, or delete it
 - Swipe a round left and confirm before it is removed
 - Read stats: average versus par, best round, aces, birdies, and a split by course
 - Save courses you play, edit hole par and distance, and leave a condition note
