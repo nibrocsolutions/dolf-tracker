@@ -947,7 +947,7 @@ function renderSheet() {
         <span>${esc(player.name)}</span>
         <button type="button" data-act="move-player" data-player="${player.id}" data-dir="-1" ${index === 0 ? "disabled" : ""}>Up</button>
         <button type="button" data-act="move-player" data-player="${player.id}" data-dir="1" ${index === round.players.length - 1 ? "disabled" : ""}>Down</button>
-        <button type="button" data-act="remove-player" data-player="${player.id}">Remove</button>
+        <button type="button" data-act="ask-remove-card" data-player="${player.id}" data-name="${esc(player.name)}">Remove</button>
       </div>`
     )).join("");
     return `<div class="sheet-back">
@@ -999,7 +999,7 @@ function render() {
   }
   if (!state.playerId) {
     nav.hidden = true;
-    app.innerHTML = renderWelcome();
+    app.innerHTML = banners() + renderWelcome();
     return;
   }
   nav.hidden = false;
@@ -1025,6 +1025,16 @@ function render() {
   };
   const draw = screens[state.screen] || renderHome;
   app.innerHTML = draw() + renderSheet() + renderConfirm();
+  revealCurrentHole();
+}
+
+function revealCurrentHole() {
+  const rail = document.querySelector("#app .rail");
+  if (!rail) return;
+  const current = rail.querySelector("button.on");
+  if (!current) return;
+  const target = current.offsetLeft - (rail.clientWidth - current.offsetWidth) / 2;
+  rail.scrollLeft = Math.max(0, target);
 }
 
 function renderConfirm() {
@@ -1146,6 +1156,7 @@ function rememberScore(playerId, strokes, holeNumber = state.hole) {
 
 const scoreQueue = new Map();
 let scoreFlush = null;
+let roundEpoch = 0;
 
 function queueScore(roundId, playerId, hole, strokes) {
   scoreQueue.set(`${roundId}:${playerId}:${hole}`, { roundId, playerId, hole, strokes });
@@ -1160,6 +1171,7 @@ async function flushScores() {
       for (const item of batch) {
         if (!state.round || state.round.id !== item.roundId) continue;
         const local = scoreFor(state.round, item.playerId, item.hole);
+        const epoch = roundEpoch;
         const saved = await api(`/api/rounds/${item.roundId}/scores`, {
           method: "PUT",
           body: {
@@ -1171,6 +1183,12 @@ async function flushScores() {
           },
         });
         if (!state.round || state.round.id !== item.roundId) continue;
+        if (epoch !== roundEpoch) {
+          if (state.round.players.some((player) => player.id === item.playerId)) {
+            rememberScore(item.playerId, item.strokes, item.hole);
+          }
+          continue;
+        }
         state.round = saved;
         scoreQueue.forEach((pending) => {
           if (pending.roundId === state.round.id) rememberScore(pending.playerId, pending.strokes, pending.hole);
@@ -1205,7 +1223,8 @@ async function saveScore(playerId, strokes, extras = {}) {
   await settleScores();
   const round = state.round;
   const current = scoreFor(round, playerId, state.hole);
-  state.round = await api(`/api/rounds/${round.id}/scores`, {
+  const epoch = roundEpoch;
+  const saved = await api(`/api/rounds/${round.id}/scores`, {
     method: "PUT",
     body: {
       player_id: playerId,
@@ -1215,6 +1234,12 @@ async function saveScore(playerId, strokes, extras = {}) {
       fairway: extras.fairway !== undefined ? extras.fairway : (current ? current.fairway : null),
     },
   });
+  if (!state.round || state.round.id !== round.id) return;
+  if (epoch !== roundEpoch) {
+    if (state.round.players.some((player) => player.id === playerId)) rememberScore(playerId, strokes);
+    return;
+  }
+  state.round = saved;
   const holeCount = state.round.layout.holes.length;
   const everyone = state.round.players.every((player) => scoreFor(state.round, player.id, state.hole));
   if (extras.advance && strokes != null && everyone && state.hole < holeCount) {
@@ -1379,7 +1404,9 @@ async function onSubmit(act, data) {
       playerId = created.id;
     }
     if (!playerId) throw new Error("Choose a player or type a name.");
+    roundEpoch += 1;
     state.round = await api(`/api/rounds/${state.round.id}/players`, { method: "POST", body: { player_id: playerId } });
+    roundEpoch += 1;
     state.players = await api("/api/players");
     return;
   }
@@ -1453,21 +1480,45 @@ async function doAct(act, data) {
     return;
   }
   if (act === "delete-player") {
-    await api(`/api/players/${data.id}`, { method: "DELETE" });
-    if (Number(data.id) === state.playerId) {
+    const id = Number(data.id);
+    const wasCurrent = id === state.playerId;
+    state.players = state.players.filter((player) => player.id !== id);
+    if (wasCurrent) {
       localStorage.removeItem("dolfPlayerId");
       state.playerId = null;
       state.sheet = null;
-      state.notice = "Player removed.";
-      return;
+    }
+    paint();
+    try {
+      await api(`/api/players/${id}`, { method: "DELETE" });
+    } catch (err) {
+      state.players = await api("/api/players");
+      if (wasCurrent) {
+        state.playerId = id;
+        localStorage.setItem("dolfPlayerId", String(id));
+      }
+      throw err;
     }
     state.players = await api("/api/players");
     state.notice = "Player removed.";
     return;
   }
   if (act === "delete-admin-player") {
-    await api(`/api/admin/players/${data.id}`, { method: "DELETE" });
+    const id = Number(data.id);
+    if (state.admin) state.admin.players = state.admin.players.filter((player) => player.id !== id);
+    paint();
+    try {
+      await api(`/api/admin/players/${id}`, { method: "DELETE" });
+    } catch (err) {
+      state.admin = await api("/api/admin/summary");
+      throw err;
+    }
     state.admin = await api("/api/admin/summary");
+    state.players = await api("/api/players");
+    if (state.playerId === id) {
+      localStorage.removeItem("dolfPlayerId");
+      state.playerId = null;
+    }
     state.notice = "Player removed.";
     return;
   }
@@ -1513,12 +1564,25 @@ async function doAct(act, data) {
     if (index < 0 || swap < 0 || swap >= ids.length) return;
     const next = ids.slice();
     [next[index], next[swap]] = [next[swap], next[index]];
+    roundEpoch += 1;
     state.round = await api(`/api/rounds/${state.round.id}/order`, { method: "PUT", body: { player_ids: next } });
+    roundEpoch += 1;
     return;
   }
-  if (act === "remove-player") {
-    if (!window.confirm("Remove this player and their scores from the card?")) return;
-    state.round = await api(`/api/rounds/${state.round.id}/players/${data.player}`, { method: "DELETE" });
+  if (act === "remove-card") {
+    const id = Number(data.player);
+    roundEpoch += 1;
+    for (const key of [...scoreQueue.keys()]) {
+      if (key.startsWith(`${state.round.id}:${id}:`)) scoreQueue.delete(key);
+    }
+    state.round.players = state.round.players.filter((player) => player.id !== id);
+    state.round.scores = state.round.scores.filter((score) => score.player_id !== id);
+    state.round.summary = state.round.summary.filter((line) => line.player_id !== id);
+    paint();
+    state.round = await api(`/api/rounds/${state.round.id}/players/${id}`, { method: "DELETE" });
+    roundEpoch += 1;
+    state.sheet = "round";
+    state.notice = "Player removed from the card.";
     return;
   }
 }
@@ -1674,6 +1738,16 @@ function onAct(el) {
       `Are you sure you want to remove ${data.name || "this disc"}?`,
       "Remove disc",
       "delete-disc",
+      data,
+    );
+    return;
+  }
+  if (act === "ask-remove-card") {
+    askRemove(
+      "Remove this player?",
+      `Are you sure you want to remove ${data.name || "this player"} from the card? Their scores on this round will be deleted.`,
+      "Remove player",
+      "remove-card",
       data,
     );
     return;
