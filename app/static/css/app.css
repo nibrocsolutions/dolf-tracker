@@ -305,7 +305,27 @@ textarea { min-height: 90px; resize: vertical; }
   padding: 0;
   font-weight: 750;
 }
-.cardgrid button.empty { color: #b7b1a4; font-weight: 600; }
+.cardgrid button.empty { color: var(--muted); font-weight: 600; }
+.cardgrid button.even { background: #f6f3ec; color: var(--ink); }
+.cardgrid button.under { background: #e7f6ec; }
+.cardgrid button.over { background: #fde8e4; }
+.cardgrid td.here button { background: transparent; }
+
+h2 .section-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+h2 .section-link span { color: var(--muted); font-size: 22px; font-weight: 600; }
+button.stat { width: 100%; text-align: left; }
 
 .stats {
   display: grid;
