@@ -286,7 +286,10 @@ async function run(work) {
     }
   } finally {
     state.busy = false;
+    const next = state.nextWork;
+    state.nextWork = null;
     render();
+    if (next) run(next);
   }
 }
 
@@ -661,6 +664,32 @@ function resultClass(result, vs) {
   return vsClass(vs || 0);
 }
 
+function scoreWord(strokes, par) {
+  if (strokes === 1) return "Ace";
+  const vs = strokes - par;
+  if (vs <= -3) return "Albatross";
+  if (vs === -2) return "Eagle";
+  if (vs === -1) return "Birdie";
+  if (vs === 0) return "Par";
+  if (vs === 1) return "Bogey";
+  if (vs === 2) return "Double";
+  return "Triple+";
+}
+
+function scoreStepper(player, hole, live) {
+  const current = scoreFor(state.round, player.id, hole.number);
+  const strokes = current ? current.strokes : null;
+  const tone = strokes == null ? "unset" : resultClass(strokes === 1 ? "ace" : "other", strokes - hole.par);
+  const shown = strokes == null ? String(hole.par) : String(strokes);
+  const locked = live ? "" : "disabled";
+  const label = strokes == null ? `No score, par ${hole.par}` : `Score ${strokes}`;
+  return `<div class="stepper" role="group" aria-label="Score for ${esc(player.name)}">
+    <button type="button" data-act="nudge" data-player="${player.id}" data-delta="-1" aria-label="Lower score" ${locked}>−</button>
+    <button type="button" class="stepper-value ${tone}" data-act="nudge" data-player="${player.id}" data-delta="0" aria-label="${esc(label)}" ${locked}>${shown}</button>
+    <button type="button" data-act="nudge" data-player="${player.id}" data-delta="1" aria-label="Raise score" ${locked}>+</button>
+  </div>`;
+}
+
 function renderRound() {
   const round = state.round;
   const live = round.status === "live";
@@ -679,14 +708,6 @@ function renderRound() {
   }).filter(Boolean);
   const players = round.players.map((player) => {
     const current = scoreFor(round, player.id, hole.number);
-    const maxStroke = Math.max(8, hole.par + 3);
-    const pads = [];
-    for (let strokes = 1; strokes <= maxStroke; strokes += 1) {
-      const vs = strokes - hole.par;
-      const result = strokes === 1 ? "ace" : vs <= -3 ? "albatross" : vs === -2 ? "eagle" : vs === -1 ? "birdie" : vs === 0 ? "par" : vs === 1 ? "bogey" : vs === 2 ? "double" : "worse";
-      const on = current && current.strokes === strokes;
-      pads.push(`<button type="button" class="${on ? `on ${resultClass(result, vs)}` : ""}" data-act="score" data-player="${player.id}" data-strokes="${strokes}" ${live ? "" : "disabled"}>${strokes}</button>`);
-    }
     const label = current ? `${current.result_label} ${fmtVs(current.vs_par)}` : "—";
     const stats = state.showThrowStats ? `<div class="details">
       <span>Putts</span>
@@ -702,7 +723,7 @@ function renderRound() {
         <h2>${esc(player.name)}</h2>
         <span class="result ${current ? vsClass(current.vs_par) : ""}">${esc(label)}</span>
       </div>
-      <div class="numpad">${pads.join("")}</div>
+      ${scoreStepper(player, hole, live)}
       ${live && current ? `<button type="button" class="secondary" data-act="clear-score" data-player="${player.id}">Clear hole</button>` : ""}
       ${stats}
     </article>`;
@@ -752,7 +773,7 @@ function renderRound() {
         <button type="button" class="secondary" data-act="hole" data-hole="${Math.max(1, hole.number - 1)}">Previous</button>
         <button type="button" class="secondary" data-act="hole" data-hole="${Math.min(holes.length, hole.number + 1)}">Next</button>
       </div>
-      ${live ? `<button type="button" class="primary" data-act="finish">Finish round</button>` : ""}
+      ${live ? `<button type="button" class="primary" data-act="ask-finish">Finish round</button>` : ""}
     </section>`;
 }
 
@@ -954,7 +975,7 @@ function renderSheet() {
         </div>` : ""}
         <button type="button" class="secondary" data-act="copy">Copy scorecard</button>
         <button type="button" class="secondary" data-act="toggle-stats">${state.showThrowStats ? "Hide throw stats" : "Show putts and fairway"}</button>
-        ${round.status === "live" ? `<button type="button" class="primary" data-act="finish">Finish round</button>` : `<button type="button" class="primary" data-act="reopen">Reopen round</button>`}
+        ${round.status === "live" ? `<button type="button" class="primary" data-act="ask-finish">Finish round</button>` : `<button type="button" class="primary" data-act="reopen">Reopen round</button>`}
         <button type="button" class="danger" data-act="ask-delete-round" data-id="${round.id}" data-name="${esc(round.course.name)}">Delete round</button>
         <button type="button" class="secondary" data-act="sheet">Close</button>
       </div>
@@ -1013,14 +1034,14 @@ function renderConfirm() {
     <div class="sheet stack confirm" role="alertdialog" aria-labelledby="confirm-title">
       <h2 id="confirm-title">${esc(ask.title)}</h2>
       <p>${esc(ask.body)}</p>
-      <button type="button" class="danger" data-act="confirm-yes">${esc(ask.yes)}</button>
-      <button type="button" class="secondary" data-act="confirm-no">Keep it</button>
+      <button type="button" class="${ask.tone || "danger"}" data-act="confirm-yes">${esc(ask.yes)}</button>
+      <button type="button" class="secondary" data-act="confirm-no">${esc(ask.no || "Keep it")}</button>
     </div>
   </div>`;
 }
 
-function askRemove(title, body, yes, act, data) {
-  state.confirm = { title, body, yes, act, data };
+function askRemove(title, body, yes, act, data, no = "Keep it", tone = "danger") {
+  state.confirm = { title, body, yes, no, act, data, tone };
   state.sheet = null;
   paint();
 }
@@ -1094,22 +1115,22 @@ function optionalNumber(data, name) {
   return Number.isFinite(value) ? value : null;
 }
 
-function rememberScore(playerId, strokes) {
+function rememberScore(playerId, strokes, holeNumber = state.hole) {
   const round = state.round;
   if (!round) return;
-  const hole = holeByNumber(round, state.hole);
+  const hole = holeByNumber(round, holeNumber);
   const par = hole ? hole.par : 3;
-  const previous = scoreFor(round, playerId, state.hole);
-  const keep = round.scores.filter((score) => !(score.player_id === playerId && score.hole_number === state.hole));
+  const previous = scoreFor(round, playerId, holeNumber);
+  const keep = round.scores.filter((score) => !(score.player_id === playerId && score.hole_number === holeNumber));
   if (strokes != null) {
     keep.push({
       player_id: playerId,
-      hole_number: state.hole,
+      hole_number: holeNumber,
       strokes,
       putts: previous ? previous.putts : null,
       fairway: previous ? previous.fairway : null,
       vs_par: strokes - par,
-      result_label: strokes === 1 ? "Ace" : fmtVs(strokes - par),
+      result_label: scoreWord(strokes, par),
     });
   }
   round.scores = keep;
@@ -1123,7 +1144,65 @@ function rememberScore(playerId, strokes) {
   }
 }
 
+const scoreQueue = new Map();
+let scoreFlush = null;
+
+function queueScore(roundId, playerId, hole, strokes) {
+  scoreQueue.set(`${roundId}:${playerId}:${hole}`, { roundId, playerId, hole, strokes });
+  if (!scoreFlush) scoreFlush = flushScores().finally(() => { scoreFlush = null; });
+}
+
+async function flushScores() {
+  try {
+    while (scoreQueue.size) {
+      const batch = [...scoreQueue.values()];
+      scoreQueue.clear();
+      for (const item of batch) {
+        if (!state.round || state.round.id !== item.roundId) continue;
+        const local = scoreFor(state.round, item.playerId, item.hole);
+        const saved = await api(`/api/rounds/${item.roundId}/scores`, {
+          method: "PUT",
+          body: {
+            player_id: item.playerId,
+            hole_number: item.hole,
+            strokes: item.strokes,
+            putts: local ? local.putts : null,
+            fairway: local ? local.fairway : null,
+          },
+        });
+        if (!state.round || state.round.id !== item.roundId) continue;
+        state.round = saved;
+        scoreQueue.forEach((pending) => {
+          if (pending.roundId === state.round.id) rememberScore(pending.playerId, pending.strokes, pending.hole);
+        });
+      }
+    }
+  } catch (err) {
+    scoreQueue.clear();
+    state.error = err.message || "The Pi didn't answer. Try that again.";
+    if (state.round) {
+      try {
+        state.round = await api(`/api/rounds/${state.round.id}`);
+      } catch (reloadErr) {
+        /* keep the score already on screen */
+      }
+    }
+  }
+  render();
+}
+
+async function settleScores() {
+  while (scoreQueue.size || scoreFlush) {
+    if (!scoreFlush && scoreQueue.size) {
+      scoreFlush = flushScores().finally(() => { scoreFlush = null; });
+    }
+    if (!scoreFlush) break;
+    await scoreFlush;
+  }
+}
+
 async function saveScore(playerId, strokes, extras = {}) {
+  await settleScores();
   const round = state.round;
   const current = scoreFor(round, playerId, state.hole);
   state.round = await api(`/api/rounds/${round.id}/scores`, {
@@ -1329,10 +1408,11 @@ async function doAct(act, data) {
     await saveScore(Number(data.player), current.strokes, { fairway });
     return;
   }
-  if (act === "finish") {
-    if (!window.confirm("Finish this round? You can reopen it later.")) return;
+  if (act === "finish-round") {
+    await settleScores();
     state.round = await api(`/api/rounds/${state.round.id}/finish`, { method: "POST" });
     state.sheet = null;
+    state.notice = "Round finished.";
     return;
   }
   if (act === "reopen") {
@@ -1503,7 +1583,49 @@ function onAct(el) {
   if (act === "confirm-yes") {
     const ask = state.confirm;
     state.confirm = null;
-    if (ask) run(() => doAct(ask.act, ask.data || {}));
+    if (!ask) return;
+    const job = () => doAct(ask.act, ask.data || {});
+    if (state.busy) {
+      state.nextWork = job;
+      paint();
+    } else {
+      run(job);
+    }
+    return;
+  }
+  if (act === "ask-finish") {
+    askRemove(
+      "Finish this round?",
+      "Are you sure you want to finish this round? You can reopen it later.",
+      "Finish round",
+      "finish-round",
+      {},
+      "Keep scoring",
+      "primary",
+    );
+    return;
+  }
+  if (act === "nudge") {
+    if (!state.round || state.round.status !== "live") return;
+    const playerId = Number(data.player);
+    const hole = holeByNumber(state.round, state.hole);
+    const par = hole ? hole.par : 3;
+    const current = scoreFor(state.round, playerId, state.hole);
+    const delta = Number(data.delta);
+    let strokes;
+    if (!current) {
+      if (delta < 0) strokes = Math.max(1, par - 1);
+      else if (delta > 0) strokes = Math.min(20, par + 1);
+      else strokes = Math.min(20, Math.max(1, par));
+    } else if (delta === 0) {
+      return;
+    } else {
+      strokes = Math.max(1, Math.min(20, current.strokes + delta));
+      if (strokes === current.strokes) return;
+    }
+    rememberScore(playerId, strokes);
+    paint();
+    queueScore(state.round.id, playerId, state.hole, strokes);
     return;
   }
   if (act === "ask-delete-round") {
