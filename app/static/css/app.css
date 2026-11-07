@@ -189,8 +189,9 @@ textarea { min-height: 90px; resize: vertical; }
 .hole-table th, .hole-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
 .hole-table th:nth-child(n+2), .hole-table td:nth-child(n+2) { text-align: right; }
 
-.rail { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 8px; }
+.rail { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 8px; }
 .rail button {
+  flex: 0 0 auto;
   min-width: 40px;
   height: 40px;
   border-radius: 999px;
