@@ -1,134 +1,238 @@
-import re
+import math
+import time
+from threading import Lock
 
 import httpx
 
-USER_AGENT = "DolfTracker/1.0 (self-hosted disc golf scorekeeper)"
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-OVERPASS_ENDPOINTS = (
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-)
+USER_AGENT = "DolfTracker/1.0 (self-hosted disc golf scorekeeper)"
+_cache: dict[str, tuple[float, list[dict]]] = {}
+_lock = Lock()
+
+STATE_CODES = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "district of columbia": "DC",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
 
 
 class OSMError(Exception):
     pass
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=20, follow_redirects=True)
-
-
-def _safe_name(value: str) -> str:
-    cleaned = re.sub(r"[^0-9A-Za-z .,'-]+", " ", value).strip()
-    return re.sub(r"\s+", " ", cleaned)[:60]
-
-
-def _element_to_course(element: dict) -> dict | None:
-    tags = element.get("tags") or {}
-    name = (tags.get("name") or "").strip()
-    if not name:
-        return None
-    center = element.get("center") or {}
-    lat = element.get("lat", center.get("lat"))
-    lon = element.get("lon", center.get("lon"))
-    try:
-        latitude = float(lat) if lat is not None else None
-        longitude = float(lon) if lon is not None else None
-    except (TypeError, ValueError):
-        latitude = None
-        longitude = None
-    raw_holes = tags.get("disc_golf:holes") or tags.get("holes") or ""
-    hole_count = 18
-    if str(raw_holes).isdigit():
-        parsed = int(raw_holes)
-        if 1 <= parsed <= 36:
-            hole_count = parsed
-    website = tags.get("website") or tags.get("contact:website") or ""
-    if website and not website.startswith(("http://", "https://")):
-        website = ""
-    kind = element.get("type") or "node"
-    if kind not in {"node", "way", "relation"}:
-        return None
-    return {
-        "external_id": f"{kind}/{element.get('id')}",
-        "name": name[:120],
-        "city": (tags.get("addr:city") or "")[:80],
-        "region": (tags.get("addr:state") or "")[:80],
-        "country": (tags.get("addr:country") or "")[:80],
-        "latitude": latitude,
-        "longitude": longitude,
-        "description": "",
-        "website": website[:300],
-        "hole_count": hole_count,
-    }
-
-
-def _geocode(client: httpx.Client, query: str) -> dict | None:
-    response = client.get(
-        NOMINATIM,
-        params={"q": query, "format": "jsonv2", "limit": 1},
-    )
-    response.raise_for_status()
-    rows = response.json()
-    if not rows:
-        return None
-    return {"lat": float(rows[0]["lat"]), "lon": float(rows[0]["lon"])}
-
-
-def _overpass(client: httpx.Client, query: str) -> list[dict]:
-    last_error: Exception | None = None
-    for endpoint in OVERPASS_ENDPOINTS:
-        try:
-            response = client.post(endpoint, data={"data": query})
-            response.raise_for_status()
-            payload = response.json()
-            return payload.get("elements") or []
-        except (httpx.HTTPError, ValueError) as exc:
-            last_error = exc
-    raise OSMError("The map search is busy. Try again in a minute, or add the course yourself.") from last_error
-
-
 def discover(query: str) -> list[dict]:
     text = " ".join(query.split())
     if len(text) < 2:
-        raise OSMError("Enter a city or course name.")
-    if len(text) > 80:
-        text = text[:80]
-    found: dict[str, dict] = {}
+        raise OSMError("Enter a town or course name.")
+    key = text.lower()
+    cached = _cached(key)
+    if cached is not None:
+        return cached
     try:
-        with _client() as client:
-            place = None
-            try:
-                place = _geocode(client, text)
-            except httpx.HTTPError:
-                place = None
-            if place:
-                south = place["lat"] - 0.35
-                west = place["lon"] - 0.4
-                north = place["lat"] + 0.35
-                east = place["lon"] + 0.4
-                around = (
-                    f"[out:json][timeout:20];"
-                    f"(nwr[\"leisure\"=\"disc_golf_course\"]({south},{west},{north},{east}););"
-                    f"out center tags 40;"
-                )
-                for element in _overpass(client, around):
-                    course = _element_to_course(element)
-                    if course:
-                        found[course["external_id"]] = course
-            safe = _safe_name(text)
-            if len(safe) >= 3:
-                by_name = (
-                    "[out:json][timeout:20];"
-                    f'(nwr["leisure"="disc_golf_course"]["name"~"{safe}",i];);'
-                    "out center tags 20;"
-                )
-                for element in _overpass(client, by_name):
-                    course = _element_to_course(element)
-                    if course:
-                        found.setdefault(course["external_id"], course)
-    except OSMError:
-        raise
+        with httpx.Client(timeout=8.0, headers={"User-Agent": USER_AGENT}) as client:
+            found = _lookup(client, text)
     except httpx.HTTPError as exc:
-        raise OSMError("The map search is busy. Try again in a minute, or add the course yourself.") from exc
-    return list(found.values())
+        raise OSMError("The map search is busy. Try again in a moment.") from exc
+    _store(key, found)
+    return [dict(item) for item in found]
+
+
+def course_from_nominatim(row: dict) -> dict | None:
+    if row.get("category") != "leisure" or row.get("type") != "disc_golf_course":
+        return None
+    kind = row.get("osm_type")
+    osm_id = row.get("osm_id")
+    name = " ".join(str(row.get("name") or "").split())
+    if kind not in {"node", "way", "relation"} or not str(osm_id).isdigit() or not name:
+        return None
+    address = row.get("address") if isinstance(row.get("address"), dict) else {}
+    extras = row.get("extratags") if isinstance(row.get("extratags"), dict) else {}
+    city = next(
+        (
+            str(address[key]).strip()
+            for key in ("town", "city", "village", "hamlet", "municipality")
+            if address.get(key)
+        ),
+        "",
+    )
+    region = _region(address)
+    country = "United States" if str(address.get("country_code") or "").lower() == "us" else str(address.get("country") or "")
+    holes = _holes(extras)
+    try:
+        latitude = float(row["lat"])
+        longitude = float(row["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "external_id": f"{kind}/{osm_id}",
+        "name": name[:120],
+        "city": city[:80],
+        "region": region[:80],
+        "country": country[:80],
+        "latitude": latitude,
+        "longitude": longitude,
+        "description": "",
+        "website": str(extras.get("website") or extras.get("contact:website") or "")[:300],
+        "hole_count": holes,
+    }
+
+
+def _lookup(client: httpx.Client, text: str) -> list[dict]:
+    place = _geocode(client, text)
+    time.sleep(1.0)
+    rows = _nearby(client, place["lat"], place["lon"]) if place else []
+    if not rows:
+        if place:
+            time.sleep(1.0)
+        rows = _named(client, text)
+    found: dict[str, dict] = {}
+    for row in rows:
+        course = course_from_nominatim(row)
+        if course:
+            found.setdefault(course["external_id"], course)
+    if place:
+        ranked = sorted(
+            found.values(),
+            key=lambda course: _miles(place["lat"], place["lon"], course["latitude"], course["longitude"]),
+        )
+    else:
+        ranked = list(found.values())
+    return ranked[:40]
+
+
+def _geocode(client: httpx.Client, text: str) -> dict | None:
+    response = client.get(
+        NOMINATIM,
+        params={"q": text, "format": "jsonv2", "limit": 1, "addressdetails": 1, "countrycodes": "us"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload:
+        return None
+    row = payload[0]
+    try:
+        return {"lat": float(row["lat"]), "lon": float(row["lon"])}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _nearby(client: httpx.Client, lat: float, lon: float) -> list[dict]:
+    pad = 0.35
+    response = client.get(
+        NOMINATIM,
+        params={
+            "q": "[leisure=disc_golf_course]",
+            "format": "jsonv2",
+            "limit": 40,
+            "addressdetails": 1,
+            "extratags": 1,
+            "viewbox": f"{lon - pad},{lat + pad},{lon + pad},{lat - pad}",
+            "bounded": 1,
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, list) else []
+
+
+def _named(client: httpx.Client, text: str) -> list[dict]:
+    response = client.get(
+        NOMINATIM,
+        params={
+            "q": f"[leisure=disc_golf_course] {text}",
+            "format": "jsonv2",
+            "limit": 20,
+            "addressdetails": 1,
+            "extratags": 1,
+            "countrycodes": "us",
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, list) else []
+
+
+def _region(address: dict) -> str:
+    iso = str(address.get("ISO3166-2-lvl4") or "")
+    if iso.upper().startswith("US-") and len(iso) == 5:
+        return iso[-2:].upper()
+    return STATE_CODES.get(str(address.get("state") or "").lower(), "")
+
+
+def _holes(extras: dict) -> int:
+    raw = extras.get("disc_golf:holes") or extras.get("holes")
+    try:
+        count = int(str(raw))
+    except (TypeError, ValueError):
+        return 18
+    return count if 1 <= count <= 36 else 18
+
+
+def _miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 3958.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(a))
+
+
+def _cached(key: str) -> list[dict] | None:
+    with _lock:
+        cached = _cache.get(key)
+    if not cached or time.time() - cached[0] > 600:
+        return None
+    return [dict(item) for item in cached[1]]
+
+
+def _store(key: str, courses: list[dict]) -> None:
+    with _lock:
+        _cache[key] = (time.time(), courses)

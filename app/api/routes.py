@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +27,27 @@ from app.stats import player_stats
 from app.database import get_db
 
 router = APIRouter()
+
+def _place_query(text: str) -> tuple[list[str], list[str]]:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    remaining = f" {cleaned} "
+    regions: list[str] = []
+    for name, code in sorted(STATE_NAMES.items(), key=lambda item: len(item[0]), reverse=True):
+        needle = f" {name} "
+        if needle in remaining:
+            regions.append(code)
+            remaining = remaining.replace(needle, " ")
+    codes = {code.lower(): code for code in STATE_NAMES.values()}
+    words = remaining.split()
+    if words and words[-1] in codes:
+        regions.append(codes[words[-1]])
+        words = words[:-1]
+    unique: list[str] = []
+    for code in regions:
+        if code not in unique:
+            unique.append(code)
+    return words, unique
+
 
 STATE_NAMES = {
     "alabama": "AL",
@@ -215,12 +238,15 @@ def list_courses(
             stmt = stmt.where(getattr(Course, field).is_(value))
     text = " ".join(q.split())
     if text:
-        like = f"%{text}%"
-        matched = [Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)]
-        region = STATE_NAMES.get(text.lower())
-        if region:
-            matched.append(Course.region == region)
-        stmt = stmt.where(or_(*matched))
+        words, regions = _place_query(text)
+        if regions:
+            stmt = stmt.where(Course.region.in_(regions))
+        for word in words:
+            like = f"%{word}%"
+            stmt = stmt.where(or_(Course.name.ilike(like), Course.city.ilike(like)))
+        if not words and not regions:
+            like = f"%{text}%"
+            stmt = stmt.where(or_(Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)))
         stmt = stmt.limit(40)
     else:
         stmt = stmt.where(Course.source != "catalog")

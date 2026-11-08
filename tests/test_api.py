@@ -382,3 +382,17 @@ def test_us_catalog_search_keeps_local_courses_and_mapped_pars(client):
     carolina = client.get("/api/courses", params={"q": "North Carolina"})
     assert carolina.status_code == 200
     assert any(course["region"] == "NC" for course in carolina.json())
+
+
+def test_city_and_state_search(client):
+    created = client.post(
+        "/api/courses",
+        json={"name": "TAIT Disc Golf", "city": "Lititz", "region": "PA", "hole_count": 18},
+    )
+    assert created.status_code == 201, created.text
+    for query in ("Lititz, PA", "Lititz PA", "lititz, pennsylvania"):
+        found = client.get("/api/courses", params={"q": query})
+        assert found.status_code == 200, found.text
+        assert any(course["name"] == "TAIT Disc Golf" for course in found.json()), query
+    other_state = client.get("/api/courses", params={"q": "Lititz, NC"})
+    assert all(course["name"] != "TAIT Disc Golf" for course in other_state.json())
