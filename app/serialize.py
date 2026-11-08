@@ -89,6 +89,35 @@ def review_out(review: Review) -> dict:
     }
 
 
+def course_card(course: Course, layout_stats: dict[int, tuple[int, int, int | None]]) -> dict:
+    """A course row for search. Hole-by-hole detail stays on the course page."""
+    layouts = []
+    for layout in sorted(course.layouts, key=lambda item: item.id):
+        count, par, distance = layout_stats.get(layout.id, (0, 0, None))
+        layouts.append(
+            {
+                "id": layout.id,
+                "name": layout.name,
+                "notes": layout.notes or "",
+                "pars_confirmed": layout.pars_confirmed,
+                "hole_count": count,
+                "par": par,
+                "distance_ft": distance,
+                "holes": [],
+            }
+        )
+    return {
+        "id": course.id,
+        "name": course.name,
+        "city": course.city or "",
+        "region": course.region or "",
+        "country": course.country or "",
+        "source": course.source,
+        "rating": None,
+        "layouts": layouts,
+    }
+
+
 def course_out(course: Course) -> dict:
     layouts = sorted(course.layouts, key=lambda layout: layout.id)
     reviews = sorted(

@@ -1,0 +1,5 @@
+Course names, towns, and hole counts are supplied by DiscGolfAPI (https://discgolfapi.com/).
+Mapped hole pars and distances are from the disc-golf-course-maps community, ODbL
+(https://codeberg.org/anniediscgolf/disc-golf-course-maps).
+
+Courses without a mapped scorecard are stored with placeholder pars and no distances.

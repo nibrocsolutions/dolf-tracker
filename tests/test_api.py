@@ -344,3 +344,38 @@ def test_clear_score_and_player_order(client):
     )
     assert [player["id"] for player in ordered.json()["players"]] == [sam["id"], alex["id"]]
     assert ordered.json()["tee_order_by_hole"]["1"] == [sam["id"], alex["id"]]
+
+
+def test_us_catalog_search_keeps_local_courses_and_mapped_pars(client):
+    from app.database import SessionLocal
+    from app.seed import seed_catalog
+
+    db = SessionLocal()
+    try:
+        added = seed_catalog(db)
+    finally:
+        db.close()
+    assert added > 4000
+
+    local = client.get("/api/courses")
+    assert local.status_code == 200
+    names = {course["name"] for course in local.json()}
+    assert "Joe Eakes Park" in names
+    assert "Deer Lakes Park" not in names
+    assert all(course["source"] != "catalog" for course in local.json())
+
+    found = client.get("/api/courses", params={"q": "Deer Lakes"})
+    match = next(course for course in found.json() if course["name"] == "Deer Lakes Park")
+    assert match["city"] == "Tarentum"
+    assert match["region"] == "PA"
+    assert match["layouts"][0]["pars_confirmed"] is True
+    assert match["layouts"][0]["hole_count"] == 18
+
+    detail = client.get(f"/api/courses/{match['id']}").json()
+    assert detail["layouts"][0]["holes"][0]["par"] == 4
+    assert detail["layouts"][0]["holes"][0]["distance_ft"] == 488
+    assert detail["layouts"][0]["pars_confirmed"] is True
+
+    joes = [course for course in client.get("/api/courses", params={"q": "Joe Eakes"}).json() if "Joe Eakes" in course["name"]]
+    assert len(joes) == 1
+    assert joes[0]["source"] == "seed"

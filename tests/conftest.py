@@ -6,6 +6,7 @@ _root = Path(tempfile.mkdtemp(prefix="dolf-tracker-"))
 os.environ["DATA_DIR"] = str(_root)
 os.environ["DATABASE_URL"] = f"sqlite:///{_root / 'test.db'}"
 os.environ["SEED_DEMO"] = "1"
+os.environ["CATALOG_SEED"] = "0"
 
 import pytest
 
