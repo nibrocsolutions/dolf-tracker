@@ -20,7 +20,7 @@ from app.schemas import (
     RoundPlayerIn,
     ScoreIn,
 )
-from app.serialize import course_out, disc_out, missing_finished_pars, player_out, round_brief, round_out
+from app.serialize import course_card, course_out, disc_out, missing_finished_pars, player_out, round_brief, round_out
 from app.stats import player_stats
 from app.database import get_db
 
@@ -145,14 +145,7 @@ def list_courses(
     pay_to_play: bool | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    stmt = select(Course).options(
-        selectinload(Course.layouts).selectinload(Layout.holes),
-        selectinload(Course.reviews).selectinload(Review.player),
-    )
-    text = " ".join(q.split())
-    if text:
-        like = f"%{text}%"
-        stmt = stmt.where(or_(Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)))
+    stmt = select(Course)
     filters = {
         "dog_friendly": dog_friendly,
         "family_friendly": family_friendly,
@@ -166,8 +159,32 @@ def list_courses(
     for field, value in filters.items():
         if value is not None:
             stmt = stmt.where(getattr(Course, field).is_(value))
-    courses = db.scalars(stmt.order_by(Course.name)).all()
-    return [course_out(course) for course in courses]
+    text = " ".join(q.split())
+    if text:
+        like = f"%{text}%"
+        stmt = stmt.where(or_(Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)))
+        stmt = stmt.limit(40)
+    else:
+        stmt = stmt.where(Course.source != "catalog")
+    courses = db.scalars(stmt.order_by(Course.name).options(selectinload(Course.layouts))).unique().all()
+    layout_ids = [layout.id for course in courses for layout in course.layouts]
+    stats: dict[int, tuple[int, int, int | None]] = {}
+    if layout_ids:
+        rows = db.execute(
+            select(
+                Hole.layout_id,
+                func.count(Hole.id),
+                func.coalesce(func.sum(Hole.par), 0),
+                func.sum(Hole.distance_ft),
+                func.count(Hole.distance_ft),
+            )
+            .where(Hole.layout_id.in_(layout_ids))
+            .group_by(Hole.layout_id)
+        ).all()
+        for layout_id, count, par, distance, distance_count in rows:
+            complete = bool(count) and distance_count == count and distance is not None
+            stats[layout_id] = (int(count), int(par or 0), int(distance) if complete else None)
+    return [course_card(course, stats) for course in courses]
 
 
 @router.post("/api/courses", status_code=201)

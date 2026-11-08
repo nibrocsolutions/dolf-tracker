@@ -49,6 +49,7 @@ const state = {
   discover: [],
   discoverQuery: "",
   courseFilter: "",
+  startQuery: "",
   filters: {},
   hole: 1,
   mode: "hole",
@@ -162,8 +163,55 @@ function filterQuery() {
     if (key === "free") params.set("pay_to_play", "false");
     else params.set(key, "true");
   });
+  const typed = state.courseFilter.trim();
+  if (typed.length >= 2) params.set("q", typed);
   const text = params.toString();
   return text ? `?${text}` : "";
+}
+
+function layoutHoles(layout) {
+  if (!layout) return 0;
+  if (layout.hole_count) return layout.hole_count;
+  return layout.holes ? layout.holes.length : 0;
+}
+
+let courseSearchSerial = 0;
+let courseSearchTimer = null;
+
+function scheduleCourseSearch(kind) {
+  clearTimeout(courseSearchTimer);
+  courseSearchTimer = setTimeout(() => {
+    const serial = ++courseSearchSerial;
+    const typed = (kind === "start" ? state.startQuery : state.courseFilter).trim();
+    if (kind === "start" && typed.length < 2) {
+      const box = document.getElementById("start-hits");
+      if (box) box.innerHTML = "";
+      return;
+    }
+    const path = kind === "start"
+      ? `/api/courses?q=${encodeURIComponent(typed)}`
+      : `/api/courses${filterQuery()}`;
+    api(path).then((rows) => {
+      if (serial !== courseSearchSerial) return;
+      if (kind === "start") {
+        const box = document.getElementById("start-hits");
+        if (!box) return;
+        box.innerHTML = rows.map((course) => {
+          const layout = course.layouts && course.layouts[0];
+          const bits = [place(course), layout ? `${layoutHoles(layout)} holes` : ""].filter(Boolean);
+          return `<button type="button" class="rowcard" data-go="start/${course.id}"><span class="rowcard-title">${esc(course.name)}</span><span class="muted">${esc(bits.join(" · "))}</span></button>`;
+        }).join("");
+        return;
+      }
+      const needle = typed.toLowerCase();
+      const shown = typed.length === 1
+        ? rows.filter((course) => `${course.name} ${course.city} ${course.region}`.toLowerCase().includes(needle))
+        : rows;
+      state.courseList = shown;
+      const list = document.getElementById("course-list");
+      if (list) list.innerHTML = courseCards(shown);
+    }).catch(() => {});
+  }, 220);
 }
 
 function filteredCourses() {
@@ -236,9 +284,16 @@ async function applyHash() {
     state.tab = "play";
     state.screen = "start";
     state.players = await api("/api/players");
-    state.courseList = await api("/api/courses");
-    state.startCourseId = b ? Number(b) : (state.courseList[0] ? state.courseList[0].id : null);
-    state.course = state.courseList.find((course) => course.id === state.startCourseId) || null;
+    state.startQuery = "";
+    if (b) {
+      state.course = await api(`/api/courses/${b}`);
+      state.courseList = [state.course];
+      state.startCourseId = Number(b);
+    } else {
+      state.courseList = await api("/api/courses");
+      state.startCourseId = state.courseList[0] ? state.courseList[0].id : null;
+      state.course = state.courseList.find((course) => course.id === state.startCourseId) || state.courseList[0] || null;
+    }
     return;
   }
   if (a === "disc") {
@@ -313,7 +368,7 @@ function courseCards(courses) {
     const bits = [];
     if (place(course)) bits.push(place(course));
     if (layout) {
-      bits.push(`${layout.holes.length} holes`);
+      bits.push(`${layoutHoles(layout)} holes`);
       if (layout.pars_confirmed) bits.push(`par ${layout.par}`);
       if (layout.distance_ft) bits.push(fmtFeet(layout.distance_ft));
     }
@@ -423,6 +478,7 @@ function renderCourses() {
     <section class="stack">
       <h1>Courses</h1>
       <input id="course-q" placeholder="Search name or town" value="${esc(state.courseFilter)}">
+      <p class="credit">Course data supplied by <a href="https://discgolfapi.com/">DiscGolfAPI</a>. Mapped holes © <a href="https://codeberg.org/anniediscgolf/disc-golf-course-maps">disc-golf-course-maps</a> contributors, ODbL.</p>
       <div class="chips">${chips}</div>
       <div class="inline">
         <button type="button" class="secondary" data-go="discover">Find on the map</button>
@@ -631,7 +687,7 @@ function renderStart() {
     `<option value="${course.id}" ${course.id === selected.id ? "selected" : ""}>${esc(course.name)}</option>`
   )).join("");
   const layouts = selected.layouts.map((layout) => (
-    `<option value="${layout.id}">${esc(layout.name)} · ${layout.holes.length} holes${layout.pars_confirmed ? ` · par ${layout.par}` : ""}</option>`
+    `<option value="${layout.id}">${esc(layout.name)} · ${layoutHoles(layout)} holes${layout.pars_confirmed ? ` · par ${layout.par}` : ""}</option>`
   )).join("");
   const players = state.players.map((player) => (
     `<label class="check"><input type="checkbox" name="player" value="${player.id}" ${player.id === state.playerId ? "checked" : ""}> ${esc(player.name)}</label>`
@@ -640,6 +696,10 @@ function renderStart() {
     ${banners()}
     <form class="stack" data-act="start">
       <h1>Start a round</h1>
+      <label class="field">Find a course
+        <input id="start-q" placeholder="Name or town" autocomplete="off" value="${esc(state.startQuery)}">
+      </label>
+      <div id="start-hits" class="stack"></div>
       <label class="field">Course
         <select name="course_id" id="start-course">${courseOptions}</select>
       </label>
@@ -882,8 +942,9 @@ function renderStats() {
     ["double", "Doubles"],
     ["worse", "Worse"],
   ].filter(([key]) => results[key]);
-  const bar = totalHoles ? `<div class="bar">${segments.map(([key]) => `<span class="${key}" style="flex:${results[key]}"></span>`).join("")}</div>
-    <div class="legend">${segments.map(([key, label]) => `<span>${label} ${results[key]}</span>`).join("")}</div>` : "";
+  const barLabel = segments.map(([key, label]) => `${label} ${results[key]}`).join(", ");
+  const bar = totalHoles ? `<div class="bar" role="img" aria-label="${esc(barLabel)}">${segments.map(([key]) => `<span class="${key}" style="flex:${results[key]}"></span>`).join("")}</div>
+    <div class="legend">${segments.map(([key, label]) => `<span class="key ${key}">${esc(label)} ${results[key]}</span>`).join("")}</div>` : "";
   const courses = stats.courses.map((course) => (
     `<button type="button" class="rowcard" data-go="courses/${course.course_id}">
       <span class="rowcard-title">${esc(course.name)}</span>
@@ -2025,6 +2086,10 @@ document.addEventListener("submit", (event) => {
   run(() => onSubmit(form.dataset.act, data));
 });
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target && event.target.id === "start-q") event.preventDefault();
+});
+
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.id === "import-word") {
@@ -2032,10 +2097,11 @@ document.addEventListener("input", (event) => {
     if (button) button.disabled = target.value.trim() !== "REPLACE";
     return;
   }
-  if (target.id === "course-q") {
-    state.courseFilter = target.value;
-    const list = document.getElementById("course-list");
-    if (list) list.innerHTML = courseCards(filteredCourses());
+  if (target.id === "course-q" || target.id === "start-q") {
+    const kind = target.id === "start-q" ? "start" : "courses";
+    if (kind === "start") state.startQuery = target.value;
+    else state.courseFilter = target.value;
+    scheduleCourseSearch(kind);
     return;
   }
   if (!state.draft) return;

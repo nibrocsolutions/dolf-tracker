@@ -1,8 +1,14 @@
+import json
+import re
+from pathlib import Path
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Course, Hole, HoleScore, Layout, Round
+
+CATALOG_PATH = Path(__file__).resolve().parent / "catalog" / "us_courses.json"
 
 # Hole numbers come from public DGCR scorecards and, for Arrowhead, the current
 # par-3 layout. Distances are feet. A third value is a hole note.
@@ -302,6 +308,108 @@ def sync_published_courses(db: Session) -> None:
                     _apply_layout(db, existing, name, notes, rows)
 
 
+def _norm_course_name(name: str) -> str:
+    text = (name or "").lower()
+    text = re.sub(r"\b(disc golf course|disc golf|dgc|links)\b", " ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _already_saved(present: set[tuple[str, str]], region: str, name: str) -> bool:
+    key = (region.upper(), _norm_course_name(name))
+    if key in present:
+        return True
+    for saved_region, saved_name in present:
+        if saved_region != key[0]:
+            continue
+        if min(len(saved_name), len(key[1])) < 8:
+            continue
+        if saved_name in key[1] or key[1] in saved_name:
+            return True
+    return False
+
+
+def seed_catalog(db: Session) -> int:
+    """Add the saved US course list. Courses already on this Pi are left alone."""
+    if db.scalar(select(Course.id).where(Course.source == "catalog")):
+        return 0
+    if not CATALOG_PATH.is_file():
+        return 0
+    payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    present = {(course.region.upper(), _norm_course_name(course.name)) for course in db.scalars(select(Course))}
+    added: list[Course] = []
+    for item in payload["courses"]:
+        region = (item.get("region") or "")[:80]
+        name = (item.get("name") or "").strip()
+        if not name or _already_saved(present, region, name):
+            continue
+        mapped = item.get("layouts") or []
+        course = Course(
+            name=name[:120],
+            city=(item.get("city") or "")[:80],
+            region=region,
+            country="United States",
+            latitude=item.get("lat"),
+            longitude=item.get("lng"),
+            website=(item.get("web") or "")[:300],
+            description=(
+                "Hole pars and distances come from the open course map."
+                if mapped
+                else "Public course listing. Set hole pars before you trust a score versus par."
+            ),
+            pay_to_play=item.get("pay"),
+            source="catalog",
+            external_id=(item.get("id") or "")[:80] or None,
+        )
+        if mapped:
+            seen_names: set[str] = set()
+            for layout in mapped:
+                layout_name = (layout.get("name") or "Mapped").strip()[:80] or "Mapped"
+                base = layout_name
+                suffix = 2
+                while layout_name.lower() in seen_names:
+                    layout_name = f"{base[:76]} {suffix}"
+                    suffix += 1
+                seen_names.add(layout_name.lower())
+                model = Layout(
+                    name=layout_name,
+                    notes="Pars and distances from the open course map.",
+                    pars_confirmed=True,
+                )
+                for number, hole in enumerate(layout.get("holes") or [], start=1):
+                    par = int(hole[0])
+                    distance = hole[1]
+                    notes = hole[2] if len(hole) > 2 else ""
+                    model.holes.append(
+                        Hole(
+                            number=number,
+                            par=par,
+                            distance_ft=int(distance) if distance is not None else None,
+                            notes=(notes or "")[:500],
+                        )
+                    )
+                if model.holes:
+                    course.layouts.append(model)
+        if not course.layouts:
+            count = item.get("holes") or 18
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                count = 18
+            count = min(36, max(1, count))
+            note = "Pars are placeholders from the public course list."
+            if not item.get("holes"):
+                note = "The listing did not include a hole count, so this is an 18-hole placeholder."
+            layout = Layout(name="Main", notes=note, pars_confirmed=False)
+            for number in range(1, count + 1):
+                layout.holes.append(Hole(number=number, par=3, distance_ft=None, notes=""))
+            course.layouts.append(layout)
+        added.append(course)
+    db.add_all(added)
+    db.commit()
+    return len(added)
+
+
 def seed_database(db: Session) -> None:
     if not settings.seed_demo:
         return
@@ -309,3 +417,5 @@ def seed_database(db: Session) -> None:
         _insert_courses(db)
     sync_published_courses(db)
     db.commit()
+    if settings.catalog_seed:
+        seed_catalog(db)

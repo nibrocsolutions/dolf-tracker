@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8092
     seed_demo: bool = True
+    catalog_seed: bool = True
 
     @property
     def resolved_database_url(self) -> str:
