@@ -126,7 +126,7 @@ function setPlayer(id) {
 async function api(path, options = {}) {
   const opts = { method: options.method || "GET", headers: {} };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), options.timeout || 12000);
   opts.signal = controller.signal;
   if (options.body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
@@ -195,8 +195,24 @@ function scheduleCourseSearch(kind) {
     const path = kind === "start"
       ? `/api/courses?q=${encodeURIComponent(typed)}`
       : `/api/courses${filterQuery()}`;
-    api(path).then((rows) => {
+    api(path).then(async (rows) => {
       if (serial !== courseSearchSerial) return;
+      if (!rows.length && typed.length >= 3) {
+        const box = document.getElementById(kind === "start" ? "start-hits" : "course-list");
+        if (box) box.innerHTML = `<p class="empty">Checking the map…</p>`;
+        const found = await api(`/api/courses/discover?q=${encodeURIComponent(typed)}`, { timeout: 20000 });
+        if (serial !== courseSearchSerial) return;
+        state.discover = found;
+        const next = kind === "start" ? "start" : "courses";
+        const html = found.length
+          ? found.map((course, index) => coursePick(course, "", `data-act="import" data-index="${index}" data-next="${next}"`)).join("")
+          : `<p class="empty">No courses match.</p>`;
+        if (kind === "start") state.startHits = [];
+        else state.courseList = [];
+        if (box) box.innerHTML = html;
+        keepSearchVisible(kind === "start" ? "start-q" : "course-q");
+        return;
+      }
       if (kind === "start") {
         state.startHits = rows;
         const box = document.getElementById("start-hits");
@@ -216,14 +232,18 @@ function scheduleCourseSearch(kind) {
   }, 220);
 }
 
-function coursePick(course, go) {
+function coursePick(course, go, extra = "") {
   const layout = course.layouts && course.layouts[0];
   const bits = [place(course)];
   if (layout) {
     bits.push(`${layoutHoles(layout)} holes`);
     if (layout.pars_confirmed) bits.push(`par ${layout.par}`);
+  } else if (extra) {
+    if (course.hole_count) bits.push(`${course.hole_count} holes`);
+    bits.push("On the map");
   }
-  return `<button type="button" class="rowcard" data-go="${go}/${course.id}"><span class="rowcard-title">${esc(course.name)}</span><span class="muted">${esc(bits.filter(Boolean).join(" · "))}</span></button>`;
+  const action = extra || `data-go="${go}/${course.id}"`;
+  return `<button type="button" class="rowcard" ${action}><span class="rowcard-title">${esc(course.name)}</span><span class="muted">${esc(bits.filter(Boolean).join(" · "))}</span></button>`;
 }
 
 function keepSearchVisible(inputId) {
@@ -670,7 +690,7 @@ function renderDiscover() {
   const results = state.discover.map((course, index) => (
     `<article class="card stack">
       <strong>${esc(course.name)}</strong>
-      <span class="muted">${esc(place(course) || "Mapped course")} · ${course.hole_count} holes on the map tag</span>
+      <span class="muted">${esc([place(course), `${course.hole_count} holes`].filter(Boolean).join(" · "))}</span>
       ${course.imported ? `<span class="muted">Already saved</span>` : `<button type="button" class="primary" data-act="import" data-index="${index}">Save course</button>`}
     </article>`
   )).join("");
@@ -1539,7 +1559,7 @@ async function onSubmit(act, data) {
     state.discoverQuery = String(data.get("q") || "");
     state.notice = "Searching public maps…";
     render();
-    state.discover = await api(`/api/courses/discover?q=${encodeURIComponent(state.discoverQuery)}`);
+    state.discover = await api(`/api/courses/discover?q=${encodeURIComponent(state.discoverQuery)}`, { timeout: 20000 });
     state.notice = state.discover.length ? "" : "No courses found. Try a city, or add one yourself.";
     return;
   }
@@ -1734,7 +1754,7 @@ async function doAct(act, data) {
   if (act === "import") {
     const item = state.discover[Number(data.index)];
     const course = await api("/api/courses/import", { method: "POST", body: item });
-    await navigate(`courses/${course.id}`);
+    await navigate(data.next === "start" ? `start/${course.id}` : `courses/${course.id}`);
     return;
   }
   if (act === "filter") {
