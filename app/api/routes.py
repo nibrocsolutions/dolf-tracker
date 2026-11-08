@@ -26,6 +26,60 @@ from app.database import get_db
 
 router = APIRouter()
 
+STATE_NAMES = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
+}
+
 
 def _name_taken(db: Session, name: str, ignore_id: int | None = None) -> bool:
     stmt = select(Player).where(func.lower(Player.name) == name.lower())
@@ -162,7 +216,11 @@ def list_courses(
     text = " ".join(q.split())
     if text:
         like = f"%{text}%"
-        stmt = stmt.where(or_(Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)))
+        matched = [Course.name.ilike(like), Course.city.ilike(like), Course.region.ilike(like)]
+        region = STATE_NAMES.get(text.lower())
+        if region:
+            matched.append(Course.region == region)
+        stmt = stmt.where(or_(*matched))
         stmt = stmt.limit(40)
     else:
         stmt = stmt.where(Course.source != "catalog")
