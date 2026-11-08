@@ -379,3 +379,6 @@ def test_us_catalog_search_keeps_local_courses_and_mapped_pars(client):
     joes = [course for course in client.get("/api/courses", params={"q": "Joe Eakes"}).json() if "Joe Eakes" in course["name"]]
     assert len(joes) == 1
     assert joes[0]["source"] == "seed"
+    carolina = client.get("/api/courses", params={"q": "North Carolina"})
+    assert carolina.status_code == 200
+    assert any(course["region"] == "NC" for course in carolina.json())
