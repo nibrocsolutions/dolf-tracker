@@ -423,10 +423,8 @@ button.swipe-face {
   border: 0;
   background: #fffdf8;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  padding: 0 1px;
-  white-space: nowrap;
 }
 
 .cal-toolbar { display: grid; gap: 8px; margin-bottom: 8px; }

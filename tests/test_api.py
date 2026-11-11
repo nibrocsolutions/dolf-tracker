@@ -20,7 +20,7 @@ def test_health_and_home_page(client):
     assert "viewport" in page.text
     assert "Dolf" in page.text
     assert 'data-tab="calendar"' in page.text
-    assert page.text.index('data-tab="calendar"') < page.text.index('data-tab="home"')
+    assert 'data-tab="home"' not in page.text
     assert 'name="apple-mobile-web-app-capable"' in page.text
 
 
