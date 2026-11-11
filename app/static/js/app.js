@@ -33,8 +33,11 @@ const WEATHER = ["", "Calm", "Breezy", "Windy", "Wet", "Hot", "Cold"];
 const state = {
   players: [],
   playerId: null,
-  tab: "home",
-  screen: "home",
+  tab: "calendar",
+  screen: "calendar",
+  date: "",
+  monthRounds: [],
+  scrollDay: false,
   course: null,
   courseList: [],
   layoutId: null,
@@ -101,6 +104,79 @@ function fmtWhen(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function isoFromParts(year, monthIndex, day) {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayISO() {
+  const date = new Date();
+  return isoFromParts(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function parseISODate(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
+}
+
+function localISO(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return isoFromParts(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function dayBound(iso, end) {
+  const date = parseISODate(iso) || new Date();
+  const stamp = end
+    ? new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+    : new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  return stamp.toISOString();
+}
+
+function shiftMonth(iso, delta) {
+  const date = parseISODate(iso) || new Date();
+  const target = new Date(date.getFullYear(), date.getMonth() + delta, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return isoFromParts(target.getFullYear(), target.getMonth(), Math.min(date.getDate(), last));
+}
+
+function monthCells(anchor) {
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  const cells = [];
+  for (let index = 0; index < 42; index += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    cells.push(day);
+  }
+  return cells;
+}
+
+function longDate(iso) {
+  const date = parseISODate(iso);
+  if (!date) return iso;
+  return `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
+function monthTitle(iso) {
+  const date = parseISODate(iso);
+  if (!date) return "";
+  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 function safeUrl(url) {
@@ -263,7 +339,7 @@ function filteredCourses() {
 }
 
 async function applyHash() {
-  const [a, b, c] = (location.hash || "#home").replace(/^#/, "").split("/");
+  const [a, b, c] = (location.hash || "#calendar").replace(/^#/, "").split("/");
   state.sheet = null;
   state.confirm = null;
   state.course = null;
@@ -273,6 +349,22 @@ async function applyHash() {
   state.startCourseId = null;
   state.discId = null;
 
+  if (a === "calendar") {
+    state.tab = "calendar";
+    state.screen = "calendar";
+    state.date = parseISODate(b) ? b : todayISO();
+    const cells = monthCells(parseISODate(state.date));
+    const start = dayBound(isoFromParts(cells[0].getFullYear(), cells[0].getMonth(), cells[0].getDate()), false);
+    const last = cells[cells.length - 1];
+    const end = dayBound(isoFromParts(last.getFullYear(), last.getMonth(), last.getDate()), true);
+    const params = new URLSearchParams({
+      player_id: String(state.playerId),
+      started_after: start,
+      started_before: end,
+    });
+    state.monthRounds = await api(`/api/rounds?${params}`);
+    return;
+  }
   if (a === "courses" && b) {
     state.tab = "courses";
     state.screen = "course";
@@ -345,7 +437,7 @@ async function applyHash() {
     return;
   }
 
-  const tabs = ["home", "courses", "play", "stats", "bag"];
+  const tabs = ["calendar", "home", "courses", "play", "stats", "bag"];
   state.tab = tabs.includes(a) ? a : "home";
   state.screen = state.tab;
   if (state.tab === "home") {
@@ -456,7 +548,7 @@ function renderWelcome() {
 function header(title) {
   const person = me();
   return `<header class="top">
-    ${title ? `<button type="button" class="back" data-act="back">Back</button>` : `<button type="button" class="brand" data-go="home"><span class="mark" aria-hidden="true"></span> Dolf</button>`}
+    ${title ? `<button type="button" class="back" data-act="back">Back</button>` : `<button type="button" class="brand" data-go="calendar"><span class="mark" aria-hidden="true"></span> Dolf</button>`}
     <button type="button" class="who" data-act="sheet" data-sheet="players">${esc(person ? person.name : "Player")}</button>
   </header>`;
 }
@@ -480,6 +572,100 @@ function roundSwipe(id, title, detail, courseName) {
       <span class="muted">${esc(detail)}</span>
     </button>
   </div>`;
+}
+
+function roundsOn(iso) {
+  return (state.monthRounds || []).filter((round) => localISO(round.started_at) === iso);
+}
+
+function dayScore(rounds) {
+  let vs = null;
+  rounds.forEach((round) => {
+    if (round.status !== "finished" || round.hide_totals) return;
+    const line = (round.summary || []).find((item) => item.player_id === state.playerId);
+    if (!line || !line.holes_scored) return;
+    vs = (vs == null ? 0 : vs) + line.vs_par;
+  });
+  return vs;
+}
+
+function scoreTone(vs) {
+  if (vs == null) return "";
+  if (vs < 0) return "under";
+  if (vs > 0) return "over";
+  return "even";
+}
+
+function dayAria(day, rounds) {
+  const parts = [`${day.getDate()} ${MONTHS[day.getMonth()]}`];
+  const live = rounds.some((round) => round.status === "live");
+  const finished = rounds.filter((round) => round.status === "finished").length;
+  if (live) parts.push(live && rounds.length === 1 ? "live round" : "a live round");
+  if (finished) parts.push(finished === 1 ? "1 finished round" : `${finished} finished rounds`);
+  const vs = dayScore(rounds);
+  if (vs != null) parts.push(fmtVs(vs));
+  if (!rounds.length) parts.push("no rounds");
+  return parts.join(", ");
+}
+
+function renderCalendar() {
+  const selected = parseISODate(state.date) || new Date();
+  const cells = monthCells(selected);
+  const dow = WEEKDAYS_SHORT.map((name) => `<div class="cal-dow">${name}</div>`).join("");
+  const grid = cells.map((day) => {
+    const key = isoFromParts(day.getFullYear(), day.getMonth(), day.getDate());
+    const rounds = roundsOn(key);
+    const tone = scoreTone(dayScore(rounds));
+    const outside = day.getMonth() === selected.getMonth() ? "" : " is-outside";
+    const today = key === todayISO() ? " is-today" : "";
+    const current = key === state.date ? " is-selected" : "";
+    const live = rounds.some((round) => round.status === "live");
+    const dots = [
+      live ? `<i class="dot live"></i>` : "",
+      tone ? `<i class="dot ${tone}"></i>` : "",
+    ].join("");
+    return `<button type="button" class="cal-day${outside}${today}${current}" data-act="pick-day" data-date="${key}" aria-pressed="${current ? "true" : "false"}" aria-label="${esc(dayAria(day, rounds))}"><span class="cal-num${tone ? ` score-${tone}` : ""}">${day.getDate()}</span><span class="cal-dots">${dots}</span></button>`;
+  }).join("");
+  return `${header()}
+    ${banners()}
+    <section class="stack">
+      <div class="cal-toolbar">
+        <h1>${esc(monthTitle(state.date))}</h1>
+        <div class="cal-nav">
+          <button type="button" class="secondary" data-act="shift-month" data-delta="-1">Previous</button>
+          <button type="button" class="secondary" data-act="go-today">Today</button>
+          <button type="button" class="secondary" data-act="shift-month" data-delta="1">Next</button>
+        </div>
+      </div>
+      <p class="cal-legend">
+        <span><i class="dot live"></i> Live</span>
+        <span><i class="dot under"></i> Under</span>
+        <span><i class="dot even"></i> Even</span>
+        <span><i class="dot over"></i> Over</span>
+      </p>
+      <p class="muted cal-note">A date takes the color of your score versus par.</p>
+      <div class="cal-grid">${dow}${grid}</div>
+      ${renderDayPanel()}
+    </section>`;
+}
+
+function renderDayPanel() {
+  const rounds = roundsOn(state.date);
+  const cards = rounds.map((round) => {
+    const line = (round.summary || []).find((item) => item.player_id === state.playerId) || (round.summary || [])[0];
+    const live = round.status === "live";
+    const total = !live && line && line.holes_scored && !round.hide_totals ? `${line.strokes} (${fmtVs(line.vs_par)})` : "";
+    const title = live ? `Live · ${round.course.name}` : round.course.name;
+    const detail = [round.layout.name, total].filter(Boolean).join(" · ");
+    return roundSwipe(round.id, title, detail, round.course.name);
+  }).join("");
+  const empty = cards ? "" : `<p class="empty">No rounds this day.</p>`;
+  const start = state.date === todayISO() ? `<button type="button" class="primary" data-go="start">Start a round</button>` : "";
+  return `<section class="card day-panel">
+    <h2>${esc(longDate(state.date))}</h2>
+    ${cards || empty}
+    ${start}
+  </section>`;
 }
 
 function renderHome() {
@@ -1200,6 +1386,7 @@ function render() {
     else button.removeAttribute("aria-current");
   });
   const screens = {
+    calendar: renderCalendar,
     home: renderHome,
     courses: renderCourses,
     course: renderCourse,
@@ -1217,6 +1404,11 @@ function render() {
   const draw = screens[state.screen] || renderHome;
   app.innerHTML = draw() + renderSheet() + renderConfirm();
   revealCurrentHole();
+  if (state.scrollDay) {
+    state.scrollDay = false;
+    const panel = document.querySelector(".day-panel");
+    if (panel) panel.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function revealCurrentHole() {
@@ -1840,6 +2032,20 @@ function onAct(el) {
     paint();
     return;
   }
+  if (act === "shift-month") {
+    run(() => navigate(`calendar/${shiftMonth(state.date, Number(data.delta))}`));
+    return;
+  }
+  if (act === "pick-day") {
+    state.scrollDay = true;
+    run(() => navigate(`calendar/${data.date}`));
+    return;
+  }
+  if (act === "go-today") {
+    state.scrollDay = true;
+    run(() => navigate(`calendar/${todayISO()}`));
+    return;
+  }
   if (act === "back") {
     if (history.length > 1) history.back();
     else run(() => navigate(state.tab || "home", true));
@@ -2220,7 +2426,7 @@ async function boot() {
     state.playerId = null;
     localStorage.removeItem("dolfPlayerId");
   }
-  if (!location.hash) history.replaceState(null, "", "#home");
+  if (!location.hash) history.replaceState(null, "", "#calendar");
   if (state.playerId) {
     try {
       await applyHash();

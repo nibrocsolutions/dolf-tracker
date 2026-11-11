@@ -19,6 +19,8 @@ def test_health_and_home_page(client):
     assert page.status_code == 200
     assert "viewport" in page.text
     assert "Dolf" in page.text
+    assert 'data-tab="calendar"' in page.text
+    assert page.text.index('data-tab="calendar"') < page.text.index('data-tab="home"')
     assert 'name="apple-mobile-web-app-capable"' in page.text
 
 
@@ -382,6 +384,35 @@ def test_us_catalog_search_keeps_local_courses_and_mapped_pars(client):
     carolina = client.get("/api/courses", params={"q": "North Carolina"})
     assert carolina.status_code == 200
     assert any(course["region"] == "NC" for course in carolina.json())
+
+
+def test_rounds_in_a_time_window(client):
+    player = _player(client, "Cal")
+    course = _course_by_name(client, "Joe Eakes Park")
+    started = client.post(
+        "/api/rounds",
+        json={"course_id": course["id"], "layout_id": course["layouts"][0]["id"], "player_ids": [player["id"]]},
+    )
+    assert started.status_code == 201, started.text
+    found = client.get(
+        "/api/rounds",
+        params={
+            "player_id": player["id"],
+            "started_after": "2000-01-01T00:00:00+00:00",
+            "started_before": "2100-01-01T00:00:00+00:00",
+        },
+    )
+    assert found.status_code == 200, found.text
+    assert any(round_["id"] == started.json()["id"] for round_ in found.json())
+    missed = client.get(
+        "/api/rounds",
+        params={
+            "player_id": player["id"],
+            "started_after": "1990-01-01T00:00:00+00:00",
+            "started_before": "1991-01-01T00:00:00+00:00",
+        },
+    )
+    assert missed.json() == []
 
 
 def test_city_and_state_search(client):
