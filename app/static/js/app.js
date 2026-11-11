@@ -44,7 +44,6 @@ const state = {
   draft: null,
   round: null,
   live: [],
-  recent: [],
   playerRounds: [],
   stats: null,
   discs: [],
@@ -338,8 +337,29 @@ function filteredCourses() {
   });
 }
 
+async function loadCalendar(date) {
+  state.tab = "calendar";
+  state.screen = "calendar";
+  state.date = parseISODate(date) ? date : todayISO();
+  const cells = monthCells(parseISODate(state.date));
+  const start = dayBound(isoFromParts(cells[0].getFullYear(), cells[0].getMonth(), cells[0].getDate()), false);
+  const last = cells[cells.length - 1];
+  const end = dayBound(isoFromParts(last.getFullYear(), last.getMonth(), last.getDate()), true);
+  const params = new URLSearchParams({
+    player_id: String(state.playerId),
+    started_after: start,
+    started_before: end,
+  });
+  state.monthRounds = await api(`/api/rounds?${params}`);
+}
+
 async function applyHash() {
-  const [a, b, c] = (location.hash || "#calendar").replace(/^#/, "").split("/");
+  const parts = (location.hash || "#calendar").replace(/^#/, "").split("/");
+  if (!parts[0] || parts[0] === "home") {
+    parts[0] = "calendar";
+    if (location.hash === "#home") history.replaceState(null, "", "#calendar");
+  }
+  const [a, b, c] = parts;
   state.sheet = null;
   state.confirm = null;
   state.course = null;
@@ -350,19 +370,7 @@ async function applyHash() {
   state.discId = null;
 
   if (a === "calendar") {
-    state.tab = "calendar";
-    state.screen = "calendar";
-    state.date = parseISODate(b) ? b : todayISO();
-    const cells = monthCells(parseISODate(state.date));
-    const start = dayBound(isoFromParts(cells[0].getFullYear(), cells[0].getMonth(), cells[0].getDate()), false);
-    const last = cells[cells.length - 1];
-    const end = dayBound(isoFromParts(last.getFullYear(), last.getMonth(), last.getDate()), true);
-    const params = new URLSearchParams({
-      player_id: String(state.playerId),
-      started_after: start,
-      started_before: end,
-    });
-    state.monthRounds = await api(`/api/rounds?${params}`);
+    await loadCalendar(b);
     return;
   }
   if (a === "courses" && b) {
@@ -437,14 +445,10 @@ async function applyHash() {
     return;
   }
 
-  const tabs = ["calendar", "home", "courses", "play", "stats", "bag"];
-  state.tab = tabs.includes(a) ? a : "home";
+  const tabs = ["calendar", "courses", "play", "stats", "bag"];
+  state.tab = tabs.includes(a) ? a : "calendar";
   state.screen = state.tab;
-  if (state.tab === "home") {
-    state.live = await api("/api/rounds?status=live");
-    state.recent = await api(`/api/rounds?status=finished&player_id=${state.playerId}`);
-    state.courseList = await api("/api/courses");
-  } else if (state.tab === "courses") {
+  if (state.tab === "courses") {
     state.courseList = await api(`/api/courses${filterQuery()}`);
   } else if (state.tab === "play") {
     state.live = await api("/api/rounds?status=live");
@@ -452,6 +456,8 @@ async function applyHash() {
     state.stats = await api(`/api/stats?player_id=${state.playerId}`);
   } else if (state.tab === "bag") {
     state.discs = await api(`/api/discs?player_id=${state.playerId}`);
+  } else if (state.tab === "calendar") {
+    await loadCalendar(state.date);
   }
 }
 
@@ -666,38 +672,6 @@ function renderDayPanel() {
     ${cards || empty}
     ${start}
   </section>`;
-}
-
-function renderHome() {
-  const live = state.live.map((round) => {
-    const line = round.summary.find((item) => item.player_id === state.playerId) || round.summary[0];
-    const total = round.hide_totals || !line || !line.holes_scored ? "" : ` · ${line.strokes} (${fmtVs(line.vs_par)})`;
-    return roundSwipe(
-      round.id,
-      `Live · ${round.course.name}`,
-      `${round.layout.name} · thru ${line ? line.thru : 0}${total}`,
-      round.course.name,
-    );
-  }).join("");
-  const recent = state.recent.slice(0, 5).map((round) => {
-    const line = round.summary.find((item) => item.player_id === state.playerId) || round.summary[0];
-    const total = line && line.holes_scored ? `${line.strokes} (${fmtVs(line.vs_par)})` : "No score";
-    return roundSwipe(round.id, round.course.name, `${fmtWhen(round.started_at)} · ${total}`, round.course.name);
-  }).join("");
-  const courses = state.courseList.slice(0, 4);
-  return `${header()}
-    ${banners()}
-    <section class="stack">
-      <h1>Ready when you are</h1>
-      <p class="lede">Scores, rounds, and discs are saved for each player.</p>
-      <button type="button" class="primary" data-go="start">Start a round</button>
-      ${live}
-      ${roundsHeading()}
-      ${recent || `<p class="empty">Finished rounds show up here.</p>`}
-      <h2>Courses</h2>
-      ${courseCards(courses)}
-      <button type="button" class="secondary" data-go="courses">All courses</button>
-    </section>`;
 }
 
 function renderCourses() {
@@ -1387,7 +1361,6 @@ function render() {
   });
   const screens = {
     calendar: renderCalendar,
-    home: renderHome,
     courses: renderCourses,
     course: renderCourse,
     form: renderCourseForm,
@@ -1401,7 +1374,7 @@ function render() {
     bag: renderBag,
     disc: renderDisc,
   };
-  const draw = screens[state.screen] || renderHome;
+  const draw = screens[state.screen] || renderCalendar;
   app.innerHTML = draw() + renderSheet() + renderConfirm();
   revealCurrentHole();
   if (state.scrollDay) {
@@ -1848,7 +1821,7 @@ async function doAct(act, data) {
     await api(`/api/rounds/${id}`, { method: "DELETE" });
     if (state.round && state.round.id === id) sessionStorage.removeItem("dolfRound");
     state.notice = "Round removed.";
-    if (state.screen === "round" && state.round && state.round.id === id) await navigate(state.tab || "home", true);
+    if (state.screen === "round" && state.round && state.round.id === id) await navigate(state.tab || "calendar", true);
     else await applyHash();
     return;
   }
@@ -2048,7 +2021,7 @@ function onAct(el) {
   }
   if (act === "back") {
     if (history.length > 1) history.back();
-    else run(() => navigate(state.tab || "home", true));
+    else run(() => navigate(state.tab || "calendar", true));
     return;
   }
   if (act === "confirm-no") {
