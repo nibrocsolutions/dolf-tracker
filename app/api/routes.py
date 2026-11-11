@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, or_, select
@@ -437,6 +438,8 @@ def delete_review(review_id: int, db: Session = Depends(get_db)) -> Response:
 def list_rounds(
     status: str | None = None,
     player_id: int | None = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
     db: Session = Depends(get_db),
 ) -> list[dict]:
     stmt = select(Round).options(
@@ -451,7 +454,14 @@ def list_rounds(
         stmt = stmt.where(Round.status == status)
     if player_id is not None:
         stmt = stmt.join(RoundPlayer, RoundPlayer.round_id == Round.id).where(RoundPlayer.player_id == player_id)
-    rounds = db.scalars(stmt.order_by(Round.started_at.desc()).limit(100)).unique().all()
+    if started_after is not None:
+        stmt = stmt.where(Round.started_at >= started_after)
+    if started_before is not None:
+        stmt = stmt.where(Round.started_at <= started_before)
+    stmt = stmt.order_by(Round.started_at.desc())
+    if started_after is None and started_before is None:
+        stmt = stmt.limit(100)
+    rounds = db.scalars(stmt).unique().all()
     return [round_brief(round_) for round_ in rounds]
 
 

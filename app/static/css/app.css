@@ -423,9 +423,74 @@ button.swipe-face {
   border: 0;
   background: #fffdf8;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
+  padding: 0 1px;
+  white-space: nowrap;
 }
+
+.cal-toolbar { display: grid; gap: 8px; margin-bottom: 8px; }
+.cal-toolbar h1 { font-size: 26px; margin: 0; }
+.cal-nav { display: flex; gap: 6px; }
+.cal-nav button { flex: 1; }
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-note { margin: 0 0 8px; font-size: 13px; }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.cal-dow, button.cal-day { background: white; min-width: 0; }
+.cal-dow {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 750;
+  padding: 6px 0;
+  background: #f3f6f1;
+}
+button.cal-day {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  min-height: 58px;
+  padding: 4px 2px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: white;
+}
+button.cal-day.is-outside { background: #f3f6f1; }
+button.cal-day.is-outside .cal-num { opacity: 0.45; }
+button.cal-day.is-today { box-shadow: inset 0 3px 0 var(--pine); }
+button.cal-day.is-selected { outline: 2px solid var(--ink); outline-offset: -2px; }
+.cal-num { font-weight: 750; font-variant-numeric: tabular-nums; }
+.cal-dots { display: flex; gap: 3px; min-height: 7px; justify-content: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: block; }
+.dot.live { background: var(--orange); }
+.dot.under { background: var(--birdie); }
+.dot.even { background: var(--par); }
+.dot.over { background: var(--bogey); }
+.score-under { color: var(--birdie); }
+.score-even { color: var(--par); }
+.score-over { color: var(--bogey); }
+.day-panel { display: grid; gap: 10px; scroll-margin-top: 12px; }
+.day-panel h2 { margin: 0; font-size: 18px; }
 #nav button.on { color: var(--pine-dark); }
 
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: white; padding: 4px; border-radius: 14px; border: 1px solid var(--line); }
