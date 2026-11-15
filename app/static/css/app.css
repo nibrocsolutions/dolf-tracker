@@ -440,7 +440,6 @@ button.swipe-face {
   font-size: 13px;
 }
 .cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.cal-note { margin: 0 0 8px; font-size: 13px; }
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -480,13 +479,17 @@ button.cal-day.is-selected { outline: 2px solid var(--ink); outline-offset: -2px
 .cal-num { font-weight: 750; font-variant-numeric: tabular-nums; }
 .cal-dots { display: flex; gap: 3px; min-height: 7px; justify-content: center; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: block; }
-.dot.live { background: var(--orange); }
-.dot.under { background: var(--birdie); }
-.dot.even { background: var(--par); }
-.dot.over { background: var(--bogey); }
-.score-under { color: var(--birdie); }
-.score-even { color: var(--par); }
-.score-over { color: var(--bogey); }
+.dot.live {
+  background: var(--eagle);
+  animation: live-blink 1s steps(2, end) infinite;
+}
+.dot.finished { background: var(--par); }
+@keyframes live-blink {
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.live { animation: none; }
+}
 .day-panel { display: grid; gap: 10px; scroll-margin-top: 12px; }
 .day-panel h2 { margin: 0; font-size: 18px; }
 #nav button.on { color: var(--pine-dark); }
