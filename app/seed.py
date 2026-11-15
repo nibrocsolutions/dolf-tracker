@@ -13,13 +13,13 @@ CATALOG_PATH = Path(__file__).resolve().parent / "catalog" / "us_courses.json"
 # Hole numbers come from public DGCR scorecards and, for Arrowhead, the current
 # par-3 layout. Distances are feet. A third value is a hole note.
 
-JOE_ORIGINAL = [
-    (3, 310), (3, 232), (4, 345), (3, 150), (3, 300), (3, 342), (3, 194), (3, 177), (3, 334),
-    (4, 350), (3, 272), (4, 345), (3, 150), (3, 290), (5, 540), (4, 446), (3, 195), (3, 308),
+JOE_MAIN = [
+    (3, 255), (3, 224), (4, 334), (3, 145), (3, 298), (3, 335), (3, 185), (3, 176), (3, 321),
+    (4, 336), (3, 265), (4, 385), (3, 192), (3, 284), (5, 519), (4, 446), (3, 191), (3, 305),
 ]
 JOE_ALTERNATE = [
-    (4, 470), (3, 249), (5, 487), (3, 150), (4, 500), (3, 386), (3, 194), (3, 310), (3, 334),
-    (4, 350), (3, 272), (4, 487), (3, 150), (3, 290), (4, 384), (4, 386), (3, 195), (3, 347),
+    (3, 255), (3, 256), (5, 424), (3, 145), (4, 433), (3, 385), (3, 184), (3, 195), (3, 315),
+    (3, 283), (3, 265), (4, 405), (3, 192), (3, 234), (4, 386), (4, 381), (3, 191), (4, 348),
 ]
 CASTLE_LONG = [
     (3, 368), (3, 244), (3, 341), (4, 419), (3, 283), (4, 505), (3, 355), (5, 700), (3, 207),
@@ -46,6 +46,14 @@ OLD_SIGNATURES = {
             (3, 237), (3, 204), (4, 348), (3, 71), (3, 308), (3, 348),
             (3, 273), (3, 226), (4, 445), (4, 295), (3, 224), (4, 362),
             (3, 186), (3, 298), (5, 506), (4, 402), (3, 191), (3, 305),
+        ),
+        (
+            (3, 310), (3, 232), (4, 345), (3, 150), (3, 300), (3, 342), (3, 194), (3, 177), (3, 334),
+            (4, 350), (3, 272), (4, 345), (3, 150), (3, 290), (5, 540), (4, 446), (3, 195), (3, 308),
+        ),
+        (
+            (4, 470), (3, 249), (5, 487), (3, 150), (4, 500), (3, 386), (3, 194), (3, 310), (3, 334),
+            (4, 350), (3, 272), (4, 487), (3, 150), (3, 290), (4, 384), (4, 386), (3, 195), (3, 347),
         ),
     },
     "seed/uncw": {
@@ -139,7 +147,7 @@ PUBLISHED = [
     {
         "external_id": "seed/joe-eakes",
         "course": {
-            "description": "Two permanent layouts at Joe Eakes Park in Kure Beach. Original uses the yellow baskets. Alternate uses the red baskets. Parking has a time limit from April through October.",
+            "description": "Two permanent layouts at Joe Eakes Park in Kure Beach. Main uses the yellow baskets. Alternate uses the red baskets. Parking has a time limit from April through October.",
             "dog_friendly": True,
             "cart_friendly": True,
             "bathrooms": True,
@@ -152,8 +160,8 @@ PUBLISHED = [
             "longitude": -77.9116613,
         },
         "layouts": [
-            ("Original", "Yellow baskets. Hole lengths are the DGCR list updated June 24, 2021.", JOE_ORIGINAL),
-            ("Alternate", "Red baskets. Hole lengths are the DGCR list updated June 24, 2021.", JOE_ALTERNATE),
+            ("Main", "Yellow baskets.", JOE_MAIN),
+            ("Alternate", "Red baskets.", JOE_ALTERNATE),
         ],
     },
     {
@@ -292,6 +300,8 @@ def sync_published_courses(db: Session) -> None:
         layouts = list(course.layouts)
         for index, (name, notes, rows) in enumerate(spec["layouts"]):
             existing = next((item for item in layouts if item.name == name), None)
+            if existing is None and name == "Main":
+                existing = next((item for item in layouts if item.name == "Original"), None)
             if existing is None and index == 0:
                 existing = next((item for item in layouts if item.name == "Main"), None)
             if existing is None and index == 0 and len(layouts) == 1:
