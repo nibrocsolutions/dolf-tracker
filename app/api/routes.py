@@ -520,15 +520,18 @@ def update_round(round_id: int, payload: RoundPatch, db: Session = Depends(get_d
     if payload.hide_totals is not None:
         round_.hide_totals = payload.hide_totals
     if payload.layout_id is not None and payload.layout_id != round_.layout_id:
-        if round_.scores:
-            raise HTTPException(
-                status_code=409,
-                detail="The layout is locked once you start scoring. Delete the round and start again.",
-            )
+        if round_.status != "live":
+            raise HTTPException(status_code=409, detail="Reopen the round before changing the layout.")
         layout = layout_or_404(db, payload.layout_id)
         if layout.course_id != round_.course_id:
             raise HTTPException(status_code=422, detail="That layout is not on this course.")
-        round_.layout_id = layout.id
+        hole_numbers = {hole.number for hole in layout.holes}
+        if any(score.hole_number not in hole_numbers for score in round_.scores):
+            raise HTTPException(
+                status_code=409,
+                detail="This round has scores past the last hole of that layout.",
+            )
+        round_.layout = layout
     db.commit()
     return round_out(round_or_404(db, round_.id))
 

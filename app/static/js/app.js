@@ -389,6 +389,7 @@ async function applyHash() {
     state.tab = "play";
     state.screen = "round";
     state.round = await api(`/api/rounds/${b}`);
+    state.course = await api(`/api/courses/${state.round.course.id}`);
     state.mode = "hole";
     const maxHole = state.round.layout.holes.length || 1;
     const saved = Number(sessionStorage.getItem("dolfHole") || 1);
@@ -1067,16 +1068,30 @@ function renderRound() {
     return `<tr><th class="name" scope="row">${esc(player.name)}</th>${cells}<td class="tot">${total}</td></tr>`;
   }).join("");
 
+  const layouts = (state.course && state.course.id === round.course.id && state.course.layouts) || [];
+  const canSwitch = live && layouts.length > 1;
+  const layoutOptions = layouts.map((layout) => (
+    `<option value="${layout.id}" ${layout.id === round.layout.id ? "selected" : ""}>${esc(layout.name)} · ${layoutHoles(layout)} holes${layout.pars_confirmed ? ` · par ${layout.par}` : ""}</option>`
+  )).join("");
+  const weather = round.weather ? esc(round.weather) : "";
+  const layoutControl = canSwitch
+    ? `<label class="field">Layout<select id="round-layout">${layoutOptions}</select></label>`
+    : "";
+  const subtitle = canSwitch
+    ? (weather ? `<p class="muted">${weather}</p>` : "")
+    : `<p class="muted">${esc(round.layout.name)}${weather ? ` · ${weather}` : ""}</p>`;
+
   return `${header("round")}
     ${banners()}
     <section class="stack">
       <div class="player-line">
         <div>
           <h1>${esc(round.course.name)}</h1>
-          <p class="muted">${esc(round.layout.name)}${round.weather ? ` · ${esc(round.weather)}` : ""}</p>
+          ${subtitle}
         </div>
         <button type="button" class="secondary" data-act="sheet" data-sheet="round">Menu</button>
       </div>
+      ${layoutControl}
       ${live ? "" : `<p class="banner good"><span>This round is finished.</span> <button type="button" class="secondary" data-act="reopen">Reopen</button></p>`}
       ${round.layout.pars_confirmed ? "" : `<p class="banner warn">Pars on this layout are placeholders, so the score versus par will be off.</p>`}
       ${!round.hide_totals && running ? `<p><strong>You</strong> · ${esc(running)} · ${line.holes_scored} scored</p>` : ""}
@@ -2363,6 +2378,21 @@ document.addEventListener("change", (event) => {
   const target = event.target;
   if (target.id === "start-course") {
     run(() => navigate(`start/${target.value}`, true));
+    return;
+  }
+  if (target.id === "round-layout") {
+    const layoutId = Number(target.value);
+    if (!state.round || layoutId === state.round.layout.id) return;
+    run(async () => {
+      await settleScores();
+      state.round = await api(`/api/rounds/${state.round.id}`, {
+        method: "PATCH",
+        body: { layout_id: layoutId },
+      });
+      const maxHole = state.round.layout.holes.length || 1;
+      state.hole = Math.min(Math.max(state.hole, 1), maxHole);
+      sessionStorage.setItem("dolfHole", String(state.hole));
+    });
     return;
   }
   if (!state.draft || !target.dataset || !target.dataset.holeField) return;
