@@ -34,10 +34,14 @@ def _par_distance(layout):
 def test_seeded_local_courses(client):
     joe = _course_by_name(client, "Joe Eakes Park")
     by_name = {layout["name"]: layout for layout in joe["layouts"]}
-    assert joe["layouts"][0]["name"] == "Original"
-    assert _par_distance(by_name["Original"]) == (60, 5280)
-    assert by_name["Original"]["holes"][0]["distance_ft"] == 310
-    assert _par_distance(by_name["Alternate"]) == (62, 5941)
+    assert by_name["Main"]["name"] == "Main"
+    assert _par_distance(by_name["Main"]) == (60, 5196)
+    assert by_name["Main"]["holes"][0] == {"number": 1, "par": 3, "distance_ft": 255, "notes": ""}
+    assert by_name["Main"]["holes"][14]["par"] == 5
+    assert by_name["Main"]["holes"][14]["distance_ft"] == 519
+    assert _par_distance(by_name["Alternate"]) == (61, 5277)
+    assert by_name["Alternate"]["holes"][2] == {"number": 3, "par": 5, "distance_ft": 424, "notes": ""}
+    assert by_name["Alternate"]["holes"][17] == {"number": 18, "par": 4, "distance_ft": 348, "notes": ""}
     assert joe["dog_friendly"] == "yes"
     assert joe["pay_to_play"] == "no"
 
@@ -77,21 +81,26 @@ def test_sync_repairs_old_holes_and_keeps_scored_ones(client):
 
     db = SessionLocal()
     joe = db.scalar(select(Course).where(Course.external_id == "seed/joe-eakes"))
-    original = next(layout for layout in joe.layouts if layout.name == "Original")
-    original.name = "Main"
+    original = next(layout for layout in joe.layouts if layout.name == "Main")
+    original.name = "Original"
     for hole in list(original.holes):
         db.delete(hole)
     db.flush()
-    old_rows = next(iter(OLD_SIGNATURES["seed/joe-eakes"]))
-    for number, (par, distance) in enumerate(old_rows, start=1):
+    previous = (
+        (3, 310), (3, 232), (4, 345), (3, 150), (3, 300), (3, 342), (3, 194), (3, 177), (3, 334),
+        (4, 350), (3, 272), (4, 345), (3, 150), (3, 290), (5, 540), (4, 446), (3, 195), (3, 308),
+    )
+    assert previous in OLD_SIGNATURES["seed/joe-eakes"]
+    for number, (par, distance) in enumerate(previous, start=1):
         original.holes.append(Hole(number=number, par=par, distance_ft=distance, notes=""))
     db.commit()
     sync_published_courses(db)
     db.commit()
     db.refresh(original)
-    assert original.name == "Original"
+    assert original.name == "Main"
     assert sum(hole.par for hole in original.holes) == 60
-    assert sum(hole.distance_ft for hole in original.holes) == 5280
+    assert sum(hole.distance_ft for hole in original.holes) == 5196
+    assert original.holes[0].distance_ft == 255
 
     trinity = db.scalar(select(Course).where(Course.external_id == "seed/trinity-good-hops"))
     layout = trinity.layouts[0]
