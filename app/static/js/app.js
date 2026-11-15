@@ -596,13 +596,6 @@ function dayScore(rounds) {
   return vs;
 }
 
-function scoreTone(vs) {
-  if (vs == null) return "";
-  if (vs < 0) return "under";
-  if (vs > 0) return "over";
-  return "even";
-}
-
 function dayAria(day, rounds) {
   const parts = [`${day.getDate()} ${MONTHS[day.getMonth()]}`];
   const live = rounds.some((round) => round.status === "live");
@@ -622,16 +615,16 @@ function renderCalendar() {
   const grid = cells.map((day) => {
     const key = isoFromParts(day.getFullYear(), day.getMonth(), day.getDate());
     const rounds = roundsOn(key);
-    const tone = scoreTone(dayScore(rounds));
     const outside = day.getMonth() === selected.getMonth() ? "" : " is-outside";
     const today = key === todayISO() ? " is-today" : "";
     const current = key === state.date ? " is-selected" : "";
     const live = rounds.some((round) => round.status === "live");
+    const finished = rounds.some((round) => round.status === "finished");
     const dots = [
       live ? `<i class="dot live"></i>` : "",
-      tone ? `<i class="dot ${tone}"></i>` : "",
+      finished ? `<i class="dot finished"></i>` : "",
     ].join("");
-    return `<button type="button" class="cal-day${outside}${today}${current}" data-act="pick-day" data-date="${key}" aria-pressed="${current ? "true" : "false"}" aria-label="${esc(dayAria(day, rounds))}"><span class="cal-num${tone ? ` score-${tone}` : ""}">${day.getDate()}</span><span class="cal-dots">${dots}</span></button>`;
+    return `<button type="button" class="cal-day${outside}${today}${current}" data-act="pick-day" data-date="${key}" aria-pressed="${current ? "true" : "false"}" aria-label="${esc(dayAria(day, rounds))}"><span class="cal-num">${day.getDate()}</span><span class="cal-dots">${dots}</span></button>`;
   }).join("");
   return `${header()}
     ${banners()}
@@ -646,11 +639,8 @@ function renderCalendar() {
       </div>
       <p class="cal-legend">
         <span><i class="dot live"></i> Live</span>
-        <span><i class="dot under"></i> Under</span>
-        <span><i class="dot even"></i> Even</span>
-        <span><i class="dot over"></i> Over</span>
+        <span><i class="dot finished"></i> Finished</span>
       </p>
-      <p class="muted cal-note">A date takes the color of your score versus par.</p>
       <div class="cal-grid">${dow}${grid}</div>
       ${renderDayPanel()}
     </section>`;
