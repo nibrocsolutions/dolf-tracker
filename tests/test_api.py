@@ -53,8 +53,15 @@ def test_seeded_local_courses(client):
     assert "Hamilton" in uncw["address"]
 
     trinity = _course_by_name(client, "Trinity at Good Hops")
-    assert len(trinity["layouts"][0]["holes"]) == 9
-    assert _par_distance(trinity["layouts"][0]) == (27, 1493)
+    trinity_layouts = {layout["name"]: layout for layout in trinity["layouts"]}
+    assert _par_distance(trinity_layouts["Main"]) == (27, 1596)
+    assert trinity_layouts["Main"]["holes"][0]["distance_ft"] == 140
+    assert trinity_layouts["Main"]["holes"][8]["distance_ft"] == 187
+    assert _par_distance(trinity_layouts["Alternates"]) == (27, 1625)
+    assert trinity_layouts["Alternates"]["holes"][0]["distance_ft"] == 137
+    assert trinity_layouts["Alternates"]["holes"][4]["distance_ft"] == 236
+    assert _par_distance(trinity_layouts["Original then Alt 18"]) == (54, 3221)
+    assert trinity_layouts["Original then Alt 18"]["holes"][9]["distance_ft"] == 137
 
     castle = _course_by_name(client, "Castle Hayne Park")
     castle_layouts = {layout["name"]: layout for layout in castle["layouts"]}
@@ -103,7 +110,7 @@ def test_sync_repairs_old_holes_and_keeps_scored_ones(client):
     assert original.holes[0].distance_ft == 255
 
     trinity = db.scalar(select(Course).where(Course.external_id == "seed/trinity-good-hops"))
-    layout = trinity.layouts[0]
+    layout = next(item for item in trinity.layouts if item.name == "Main")
     layout.pars_confirmed = False
     for number in range(10, 19):
         layout.holes.append(Hole(number=number, par=3, distance_ft=100, notes=""))
@@ -327,6 +334,54 @@ def test_filters_and_map_import(client, monkeypatch):
 
     again = client.post("/api/courses/import", json=found.json()[0])
     assert again.json()["id"] == saved.json()["id"]
+
+
+def test_live_round_can_change_layout(client):
+    player = _player(client, "Alex")
+    course = _course_by_name(client, "Trinity at Good Hops")
+    by_name = {layout["name"]: layout for layout in course["layouts"]}
+    started = client.post(
+        "/api/rounds",
+        json={
+            "course_id": course["id"],
+            "layout_id": by_name["Main"]["id"],
+            "player_ids": [player["id"]],
+        },
+    )
+    assert started.status_code == 201, started.text
+    round_id = started.json()["id"]
+    scored = client.put(
+        f"/api/rounds/{round_id}/scores",
+        json={"player_id": player["id"], "hole_number": 1, "strokes": 2},
+    )
+    assert scored.status_code == 200
+
+    switched = client.patch(f"/api/rounds/{round_id}", json={"layout_id": by_name["Alternates"]["id"]})
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["layout"]["name"] == "Alternates"
+    assert switched.json()["scores"][0]["strokes"] == 2
+    assert switched.json()["layout"]["holes"][0]["distance_ft"] == 137
+
+    longer = client.patch(f"/api/rounds/{round_id}", json={"layout_id": by_name["Original then Alt 18"]["id"]})
+    assert longer.status_code == 200, longer.text
+    assert len(longer.json()["layout"]["holes"]) == 18
+    client.put(
+        f"/api/rounds/{round_id}/scores",
+        json={"player_id": player["id"], "hole_number": 10, "strokes": 3},
+    )
+    blocked = client.patch(f"/api/rounds/{round_id}", json={"layout_id": by_name["Main"]["id"]})
+    assert blocked.status_code == 409
+
+    finished = client.post(f"/api/rounds/{round_id}/finish")
+    assert finished.status_code == 200
+    locked = client.patch(f"/api/rounds/{round_id}", json={"layout_id": by_name["Alternates"]["id"]})
+    assert locked.status_code == 409
+
+    reopened = client.post(f"/api/rounds/{round_id}/reopen")
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "live"
+    still = client.patch(f"/api/rounds/{round_id}", json={"layout_id": by_name["Main"]["id"]})
+    assert still.status_code == 409
 
 
 def test_clear_score_and_player_order(client):

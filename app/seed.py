@@ -37,7 +37,9 @@ ARROWHEAD = [
 UNCW_SHORT = [(3, 144), (3, 319), (3, 174), (3, 162), (3, 155), (3, 181), (3, 129), (3, 169), (4, 301)]
 UNCW_LONG = [(3, 231), (3, 391), (3, 246), (3, 237), (3, 281), (3, 261), (3, 129), (3, 213), (4, 472)]
 UNCW_EIGHTEEN = UNCW_SHORT + UNCW_LONG
-TRINITY = [(3, 153), (3, 173), (3, 177), (3, 174), (3, 193), (3, 171), (3, 125), (3, 141), (3, 186)]
+TRINITY_MAIN = [(3, 140), (3, 184), (3, 194), (3, 190), (3, 226), (3, 173), (3, 143), (3, 159), (3, 187)]
+TRINITY_ALT = [(3, 137), (3, 190), (3, 190), (3, 184), (3, 236), (3, 164), (3, 135), (3, 179), (3, 210)]
+TRINITY_EIGHTEEN = TRINITY_MAIN + TRINITY_ALT
 
 # First-release lists. A database that still has one of these gets the update.
 OLD_SIGNATURES = {
@@ -68,6 +70,10 @@ OLD_SIGNATURES = {
             (3, 143), (3, 129), (3, 178), (3, 178), (3, 190), (3, 160),
             (3, 130), (3, 141), (3, 190), (3, 152), (3, 119), (3, 189),
             (3, 182), (3, 199), (3, 151), (3, 152), (3, 163), (3, 213),
+        ),
+        (
+            (3, 153), (3, 173), (3, 177), (3, 174), (3, 193), (3, 171),
+            (3, 125), (3, 141), (3, 186),
         ),
     },
     "seed/castle-hayne": {tuple((3, None) for _ in range(18))},
@@ -183,7 +189,7 @@ PUBLISHED = [
     {
         "external_id": "seed/trinity-good-hops",
         "course": {
-            "description": "Nine-hole pitch and putt beside Good Hops Brewing in Carolina Beach.",
+            "description": "Pitch and putt beside Good Hops Brewing in Carolina Beach. Main is the original nine holes with cement tees. Alternates uses wooden tees. Original then Alt 18 plays the cement tees, then the wooden tees.",
             "beginner_friendly": True,
             "bathrooms": True,
             "pay_to_play": False,
@@ -191,7 +197,9 @@ PUBLISHED = [
             "longitude": -77.9047509,
         },
         "layouts": [
-            ("Main", "Nine holes from the DGCR listing.", TRINITY),
+            ("Main", "Original 9 hole layout. Cement tee pads.", TRINITY_MAIN),
+            ("Alternates", "Alternate tees. Wooden tee box on each hole.", TRINITY_ALT),
+            ("Original then Alt 18", "Cement tee pads on the front nine, then wooden tee pads on the back nine.", TRINITY_EIGHTEEN),
         ],
     },
     {
